@@ -25,15 +25,15 @@ if host_machine.system() == 'linux'
   ]
 endif
 
-render_inc = include_directories('../../4J.Render', '../../4J.Common')
-render_sources = files('../../4J.Render/4J_Render.cpp', '../../4J.Render/stdafx.cpp')
+render_inc = include_directories('../4J.Render', '../4J.Common')
+render_sources = files('../4J.Render/4J_Render.cpp', '../4J.Render/stdafx.cpp')
 lib_render = static_library(
   '4J_Render',
   render_sources,
   include_directories: render_inc,
   dependencies: [sdl2_dep, gl_dep, thread_dep],
   cpp_args: fourj_cpp_args + fourj_cpp_defs + [
-    '-include', meson.current_source_dir() / '../../4J.Render/stdafx.h',
+    '-include', meson.current_source_dir() / '../4J.Render/stdafx.h',
   ],
 )
 render_dep = declare_dependency(
@@ -42,14 +42,14 @@ render_dep = declare_dependency(
   dependencies: [sdl2_dep, gl_dep, thread_dep],
 )
 
-input_inc = include_directories('../../4J.Input', '../../4J.Common')
+input_inc = include_directories('../4J.Input', '../4J.Common')
 input_sources = files(
-  '../../4J.Input/4J_Input.cpp',
-  '../../4J.Input/INP_ForceFeedback.cpp',
-  '../../4J.Input/INP_Keyboard.cpp',
-  '../../4J.Input/INP_Main.cpp',
-  '../../4J.Input/INP_StringCheck.cpp',
-  '../../4J.Input/stdafx.cpp',
+  '../4J.Input/4J_Input.cpp',
+  '../4J.Input/INP_ForceFeedback.cpp',
+  '../4J.Input/INP_Keyboard.cpp',
+  '../4J.Input/INP_Main.cpp',
+  '../4J.Input/INP_StringCheck.cpp',
+  '../4J.Input/stdafx.cpp',
 )
 lib_input = static_library(
   '4J_Input',
@@ -57,7 +57,7 @@ lib_input = static_library(
   include_directories: input_inc,
   dependencies: [sdl2_dep],
   cpp_args: fourj_cpp_args + fourj_cpp_defs + [
-    '-include', meson.current_source_dir() / '../../4J.Input/stdafx.h',
+    '-include', meson.current_source_dir() / '../4J.Input/stdafx.h',
   ],
 )
 input_dep = declare_dependency(
@@ -66,22 +66,22 @@ input_dep = declare_dependency(
   dependencies: [sdl2_dep],
 )
 
-profile_inc = include_directories('../../4J.Profile', '../../4J.Common')
+profile_inc = include_directories('../4J.Profile', '../4J.Common')
 profile_sources = files(
-  '../../4J.Profile/4J_Profile.cpp',
-  '../../4J.Profile/PRO_AwardManager.cpp',
-  '../../4J.Profile/PRO_Data.cpp',
-  '../../4J.Profile/PRO_Main.cpp',
-  '../../4J.Profile/PRO_RichPresence.cpp',
-  '../../4J.Profile/PRO_Sys.cpp',
-  '../../4J.Profile/stdafx.cpp',
+  '../4J.Profile/4J_Profile.cpp',
+  '../4J.Profile/PRO_AwardManager.cpp',
+  '../4J.Profile/PRO_Data.cpp',
+  '../4J.Profile/PRO_Main.cpp',
+  '../4J.Profile/PRO_RichPresence.cpp',
+  '../4J.Profile/PRO_Sys.cpp',
+  '../4J.Profile/stdafx.cpp',
 )
 lib_profile = static_library(
   '4J_Profile',
   profile_sources,
   include_directories: profile_inc,
   cpp_args: fourj_cpp_args + fourj_cpp_defs + [
-    '-include', meson.current_source_dir() / '../../4J.Profile/stdafx.h',
+    '-include', meson.current_source_dir() / '../4J.Profile/stdafx.h',
   ],
 )
 profile_dep = declare_dependency(
@@ -89,20 +89,20 @@ profile_dep = declare_dependency(
   include_directories: profile_inc,
 )
 
-storage_inc = include_directories('../../4J.Storage', '../../4J.Common')
+storage_inc = include_directories('../4J.Storage', '../4J.Common')
 storage_sources = files(
-  '../../4J.Storage/4J_Storage.cpp',
-  '../../4J.Storage/stdafx.cpp',
-  '../../4J.Storage/STO_DLC.cpp',
-  '../../4J.Storage/STO_Main.cpp',
-  '../../4J.Storage/STO_SaveGame.cpp',
+  '../4J.Storage/4J_Storage.cpp',
+  '../4J.Storage/stdafx.cpp',
+  '../4J.Storage/STO_DLC.cpp',
+  '../4J.Storage/STO_Main.cpp',
+  '../4J.Storage/STO_SaveGame.cpp',
 )
 lib_storage = static_library(
   '4J_Storage',
   storage_sources,
   include_directories: storage_inc,
   cpp_args: fourj_cpp_args + fourj_cpp_defs + [
-    '-include', meson.current_source_dir() / '../../4J.Storage/stdafx.h',
+    '-include', meson.current_source_dir() / '../4J.Storage/stdafx.h',
   ],
 )
 storage_dep = declare_dependency(
