@@ -51,11 +51,13 @@ static int s_windowWidth = 1920;
 static int s_windowHeight = 1080;
 static int s_reqWidth = 0;
 static int s_reqHeight = 0;
+// removed initial window size cuz i use hyprland and it causes silly issues.
 static bool s_fullscreen = false;
 
 static pthread_key_t s_glCtxKey;
 static pthread_once_t s_glCtxKeyOnce = PTHREAD_ONCE_INIT;
 static void makeGLCtxKey() { pthread_key_create(&s_glCtxKey, nullptr); }
+// actually this number isn't that bad after that one fix.
 static const int MAX_SHARED_CTXS = 6;
 static SDL_Window* s_sharedWins[MAX_SHARED_CTXS] = {};
 static SDL_GLContext s_sharedCtxs[MAX_SHARED_CTXS] = {};
@@ -157,6 +159,9 @@ void main() {
     oColor = c;
 }
 )GLSL";
+
+// You might wonder why im not putting them in separate files, well thats
+// because im fucking lazy thats all :P
 
 static GLuint compileShader(GLenum type, const char* src) {
     GLuint s = glCreateShader(type);
@@ -414,9 +419,12 @@ void C4JRender::Initialise() {
         s_windowHeight = (int)(dm.h * 0.4f);
     }
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    // Well i changed my mind, i DID rewrite the whole renderer.
+    // atleast part of it.
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
                         SDL_GL_CONTEXT_PROFILE_CORE);
+    // I am sorry for everything that i shall do in the next commits.
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
@@ -539,11 +547,12 @@ void C4JRender::SetWindowSize(int w, int h) {
 }
 void C4JRender::SetFullscreen(bool fs) { s_fullscreen = fs; }
 bool C4JRender::ShouldClose() { return !s_window || s_shouldClose; }
+
+void C4JRender::Close() { s_window = nullptr; }
 void C4JRender::GetFramebufferSize(int& w, int& h) {
     w = s_windowWidth;
     h = s_windowHeight;
 }
-void C4JRender::Close() { s_window = nullptr; }
 
 void C4JRender::Shutdown() {
     pthread_mutex_lock(&s_glCallMtx);
@@ -568,6 +577,7 @@ void C4JRender::Shutdown() {
     SDL_Quit();
 }
 
+// all this time it was passing 16byte and i hated it
 void C4JRender::DrawVertices(ePrimitiveType ptype, int count, void* dataIn,
                              eVertexType vType, ePixelShaderType) {
     if (count <= 0 || !dataIn) return;
@@ -666,7 +676,8 @@ void C4JRender::DrawVertices(ePrimitiveType ptype, int count, void* dataIn,
     glDrawArrays(glMode, 0, count);
 
     glBindVertexArray(0);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindBuffer(GL_ARRAY_BUFFER,
+                 0);  // please vbo i need this
     pthread_mutex_unlock(&s_glCallMtx);
 }
 
@@ -748,7 +759,8 @@ bool C4JRender::CBuffCall(int index, bool) {
     for (const auto& dc : cb.draws) glDrawArrays(dc.prim, dc.first, dc.count);
 
     glBindVertexArray(0);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindBuffer(GL_ARRAY_BUFFER,
+                 0);
     pthread_mutex_unlock(&s_glCallMtx);
     return true;
 }
@@ -874,6 +886,7 @@ void C4JRender::StateSetLightAmbientColour(float r, float g, float b) {
 }
 void C4JRender::StateSetLightDirection(int light, float x, float y, float z) {
     glm::vec3 d = glm::normalize(glm::vec3(x, y, z));
+    // so i did check, java does NOT reverse, this is CORRECT.
     if (light == 0)
         s_rs.l0 = d;
     else
@@ -887,6 +900,8 @@ void C4JRender::StateSetEnableViewportClipPlanes(bool) {}
 void C4JRender::StateSetVertexTextureUV(float u, float v) {
     s_rs.globalLM = {u, v};
 }
+void C4JRender::StateSetForceLOD(int) {}
+void C4JRender::StateSetTexGenCol(int, float, float, float, float, bool) {}
 void C4JRender::StateSetStencil(int fn, uint8_t ref, uint8_t fmask,
                                 uint8_t wmask) {
     glEnable(GL_STENCIL_TEST);
@@ -909,7 +924,6 @@ void C4JRender::StateSetTextureEnable(bool e) {
         }
     }
 }
-
 void C4JRender::StateSetActiveTexture(int tex) {
     s_rs.activeTexture = (tex == 0x84C1 /*GL_TEXTURE1*/) ? 1 : 0;
 }
@@ -947,9 +961,13 @@ void C4JRender::TextureBindVertex(int idx, bool scaleLight) {
 void C4JRender::TextureSetTextureLevels(int l) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, l > 0 ? l - 1 : 0);
     if (l > 1) {
+        // Listen i tried ansio but it looked worse cuz there was this HORRIBLE
+        // black line artifact on mip levels, so here we are with this weird
+        // combo of filters that seems to work ok
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
                         GL_NEAREST_MIPMAP_LINEAR);
     } else {
+        // If there is no mipmaps, just use nearest.
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     }
 }
@@ -958,6 +976,7 @@ void C4JRender::TextureData(int w, int h, void* d, int lvl, eTextureFormat) {
     glTexImage2D(GL_TEXTURE_2D, lvl, GL_RGBA, w, h, 0, GL_RGBA,
                  GL_UNSIGNED_BYTE, d);
     if (lvl == 0) {
+        // Same as above
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         GLint maxLvl = 0;
         glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, &maxLvl);
@@ -978,6 +997,7 @@ void C4JRender::TextureDynamicUpdateEnd() {}
 void C4JRender::TextureGetStats() {}
 void* C4JRender::TextureGetTexture(int) { return nullptr; }
 
+// use stb to load imagez
 static HRESULT stbLoad(unsigned char* data, int w, int h, D3DXIMAGE_INFO* info,
                        int** out) {
     int* px = new int[w * h];
@@ -1017,6 +1037,7 @@ HRESULT C4JRender::SaveTextureDataToMemory(void*, int, int*, int, int, int*) {
     return S_OK;
 }
 
+// future me: move that somewhere else
 void C4JRender::StateSetForceLOD(int LOD) {}
 void C4JRender::DoScreenGrabOnNextPresent() {}
 void C4JRender::CaptureThumbnail(ImageFileBuffer*) {}
