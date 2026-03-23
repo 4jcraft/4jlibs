@@ -586,6 +586,9 @@ void C4JRender::TextureBind(int idx) {
 void C4JRender::TextureBindVertex(int idx, bool scaleLight) {
     // Unit 1 used for lightmapping in fixed-function or standard shaders
     ::glActiveTexture(GL_TEXTURE1);
+    ::glMatrixMode(GL_TEXTURE);
+    ::glLoadIdentity();
+
     if (idx < 0) {
         ::glBindTexture(GL_TEXTURE_2D, 0);
         ::glDisable(GL_TEXTURE_2D);
@@ -597,18 +600,15 @@ void C4JRender::TextureBindVertex(int idx, bool scaleLight) {
         ::glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
         ::glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
 
-        // 4jcraft: jank workaround for entities
-        // referenced from the disabled code in GameRenderer::turnOnLightLayer
+        // Preserve the old lightmap transform only for scaleLight paths
         if (scaleLight) {
-            ::glMatrixMode(GL_TEXTURE);
-            ::glLoadIdentity();
             float s = 1 / 16.0f / 15.0f * 15 / 16;
             ::glScalef(s, s, s);
             ::glTranslatef(8.0f, 8.0f, 8.0f);
-            ::glMatrixMode(GL_MODELVIEW);
         }
     }
 
+    ::glMatrixMode(GL_MODELVIEW);
     ::glActiveTexture(GL_TEXTURE0);
     ::glFlush();
 }
