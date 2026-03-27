@@ -64,6 +64,7 @@ static pthread_mutex_t s_sharedMtx = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t s_glCallMtx = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t s_mainThread;
 static bool s_mainThreadSet = false;
+static thread_local bool s_rs_dirty = true;
 
 static void onFramebufferResize(int w, int h) {
     if (w < 1) w = 1;
@@ -82,6 +83,7 @@ layout(location=2) in vec4  aColor;
 layout(location=3) in vec3  aNormal;
 layout(location=4) in ivec2 aLMraw;
 
+uniform mat3 uNormalMatrix;
 uniform mat4  uMVP;
 uniform mat4  uMV;
 uniform mat4  uTexMat0;
@@ -114,11 +116,13 @@ void main() {
     bool sentinel = (aColor == vec4(0.0));
     vec4 col = sentinel ? uBaseColor : aColor.abgr;
     if (uLighting == 1) {
-        mat3 normalMatrix = transpose(inverse(mat3(uMV)));
-        vec3 n   = normalize(normalMatrix * aNormal);
-        if (determinant(mat3(uMV)) < 0.0) {
+        mat3 m3 = mat3(uMV);
+        mat3 normalMatrix = transpose(inverse(m3));
+        vec3 n = normalize(normalMatrix * aNormal);
+                if (determinant(m3) < 0.0) {
             n = -n;
         }
+
         float d0 = max(dot(n, uLight0Dir), 0.0);
         float d1 = max(dot(n, uLight1Dir), 0.0);
         vColor = vec4(col.rgb * (uLightAmbient + uLightDiffuse * (d0 + d1)), col.a);
@@ -211,6 +215,7 @@ struct ShaderUniforms {
     GLint uTex0 = -1, uTex1 = -1, uGlobalLM = -1;
     GLint uUseTexture = -1;
     GLint uGamma = -1;
+    GLint uNormalMat = -1;
 
     void build(const char* vs, const char* fs) {
         GLuint v = compileShader(GL_VERTEX_SHADER, vs);
@@ -222,7 +227,7 @@ struct ShaderUniforms {
 #define L(x) x = glGetUniformLocation(prog, #x)
         L(uMVP);
         L(uMV);
-        L(uTexMat0); 
+        L(uTexMat0);
         L(uBaseColor);
         L(uLighting);
         L(uLight0Dir);
@@ -315,24 +320,26 @@ static thread_local RS s_rs;
 static void pushRenderState() {
     if (!s_shader.prog) return;
     glUseProgram(s_shader.prog);
-    glUniform4fv(s_shader.uBaseColor, 1, glm::value_ptr(s_rs.baseColor));
-    glUniform1i(s_shader.uLighting, s_rs.lighting ? 1 : 0);
-    glUniform3fv(s_shader.uLight0Dir, 1, glm::value_ptr(s_rs.l0));
-    glUniform3fv(s_shader.uLight1Dir, 1, glm::value_ptr(s_rs.l1));
-    glUniform3fv(s_shader.uLightDiff, 1, glm::value_ptr(s_rs.ldiff));
-    glUniform3fv(s_shader.uLightAmb, 1, glm::value_ptr(s_rs.lamb));
-    glUniform1i(s_shader.uFogMode, s_rs.fogMode);
-    glUniform1f(s_shader.uFogStart, s_rs.fogStart);
-    glUniform1f(s_shader.uFogEnd, s_rs.fogEnd);
-    glUniform1f(s_shader.uFogDensity, s_rs.fogDensity);
-    glUniform4fv(s_shader.uFogColor, 1, glm::value_ptr(s_rs.fogColor));
-    glUniform1i(s_shader.uFogEnable, s_rs.fogEnable ? 1 : 0);
-    glUniform1i(s_shader.uUseTexture, s_rs.useTexture ? 1 : 0);
-    glUniform1i(s_shader.uUseLightmap, s_rs.useLightmap ? 1 : 0);
-    glUniform1f(s_shader.uAlphaRef, s_rs.alphaRef);
-    glUniform1f(s_shader.uGamma, s_rs.gamma);
-    glUniform4fv(s_shader.uLMTransform, 1, glm::value_ptr(s_rs.lmt));
-    glUniform2fv(s_shader.uGlobalLM, 1, glm::value_ptr(s_rs.globalLM));
+    if (s_rs_dirty) {
+        glUniform4fv(s_shader.uBaseColor, 1, glm::value_ptr(s_rs.baseColor));
+        glUniform1i(s_shader.uLighting, s_rs.lighting ? 1 : 0);
+        glUniform3fv(s_shader.uLight0Dir, 1, glm::value_ptr(s_rs.l0));
+        glUniform3fv(s_shader.uLight1Dir, 1, glm::value_ptr(s_rs.l1));
+        glUniform3fv(s_shader.uLightDiff, 1, glm::value_ptr(s_rs.ldiff));
+        glUniform3fv(s_shader.uLightAmb, 1, glm::value_ptr(s_rs.lamb));
+        glUniform1i(s_shader.uFogMode, s_rs.fogMode);
+        glUniform1f(s_shader.uFogStart, s_rs.fogStart);
+        glUniform1f(s_shader.uFogEnd, s_rs.fogEnd);
+        glUniform1f(s_shader.uFogDensity, s_rs.fogDensity);
+        glUniform4fv(s_shader.uFogColor, 1, glm::value_ptr(s_rs.fogColor));
+        glUniform1i(s_shader.uFogEnable, s_rs.fogEnable ? 1 : 0);
+        glUniform1i(s_shader.uUseTexture, s_rs.useTexture ? 1 : 0);
+        glUniform1i(s_shader.uUseLightmap, s_rs.useLightmap ? 1 : 0);
+        glUniform1f(s_shader.uAlphaRef, s_rs.alphaRef);
+        glUniform1f(s_shader.uGamma, s_rs.gamma);
+        glUniform4fv(s_shader.uLMTransform, 1, glm::value_ptr(s_rs.lmt));
+        glUniform2fv(s_shader.uGlobalLM, 1, glm::value_ptr(s_rs.globalLM));
+    }
     flushMatrices();
 }
 
@@ -356,6 +363,7 @@ static void initStreamingVAOs() {
     glGenBuffers(1, &s_sVBO_std);
     glBindVertexArray(s_sVAO_std);
     glBindBuffer(GL_ARRAY_BUFFER, s_sVBO_std);
+
     bindStdAttribs();
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -687,6 +695,7 @@ void C4JRender::DrawVertices(ePrimitiveType ptype, int count, void* dataIn,
 
     glBindVertexArray(s_sVAO_std);
     glBindBuffer(GL_ARRAY_BUFFER, s_sVBO_std);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)bytes, NULL, GL_STREAM_DRAW);
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)bytes, dataIn, GL_STREAM_DRAW);
     bindStdAttribs();
 
@@ -828,7 +837,14 @@ const float* C4JRender::MatrixGet(int t) {
     if (m) memcpy(buf, glm::value_ptr(*m), 64);
     return buf;
 }
-void C4JRender::Set_matrixDirty() {}
+void C4JRender::Set_matrixDirty() {
+    // iggy wipes opengl state
+    s_rs_dirty = true; 
+    
+    if (s_shader.prog) {
+        glUseProgram(s_shader.prog);
+    }
+}
 
 void C4JRender::Clear(int f) { glClear(f); }
 void C4JRender::SetClearColour(const float c[4]) {
@@ -899,12 +915,12 @@ void C4JRender::StateSetFogDensity(float d) { s_rs.fogDensity = d; }
 void C4JRender::StateSetFogColour(float r, float g, float b) {
     s_rs.fogColor = {r, g, b, 1};
 }
-void C4JRender::StateSetLightingEnable(bool e) { s_rs.lighting = e; }
+void C4JRender::StateSetLightingEnable(bool e) { s_rs.lighting = e;  s_rs_dirty = true;  }
 void C4JRender::StateSetLightColour(int, float r, float g, float b) {
-    s_rs.ldiff = {r, g, b};
+    s_rs.ldiff = {r, g, b};  s_rs_dirty = true; 
 }
 void C4JRender::StateSetLightAmbientColour(float r, float g, float b) {
-    s_rs.lamb = {r, g, b};
+    s_rs.lamb = {r, g, b};  s_rs_dirty = true; 
 }
 void C4JRender::StateSetLightDirection(int light, float x, float y, float z) {
     glm::vec3 d = glm::normalize(glm::mat3(s_mv.cur()) * glm::vec3(x, y, z));
