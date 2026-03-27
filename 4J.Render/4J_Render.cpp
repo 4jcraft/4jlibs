@@ -141,6 +141,7 @@ uniform int   uUseLightmap;
 uniform float uAlphaRef;
 uniform vec4  uFogColor;
 uniform int   uFogEnable;
+uniform float uGamma;
 
 in  vec2  vUV0;
 in  vec2  vUV1;
@@ -154,6 +155,9 @@ void main() {
     if (uUseLightmap != 0) c.rgb *= texture(uTex1, vUV1).rgb;
     if (c.a < uAlphaRef) discard;
     if (uFogEnable != 0) c.rgb = mix(uFogColor.rgb, c.rgb, vFogFactor);
+
+    c.rgb = pow(c.rgb, vec3(1.0 / uGamma));
+
     oColor = c;
 }
 )GLSL";
@@ -202,6 +206,7 @@ struct ShaderUniforms {
     GLint uLMTransform = -1, uUseLightmap = -1, uAlphaRef = -1;
     GLint uTex0 = -1, uTex1 = -1, uGlobalLM = -1;
     GLint uUseTexture = -1;
+    GLint uGamma = -1;
 
     void build(const char* vs, const char* fs) {
         GLuint v = compileShader(GL_VERTEX_SHADER, vs);
@@ -232,6 +237,7 @@ struct ShaderUniforms {
         L(uTex1);
         L(uGlobalLM);
         L(uUseTexture);
+        L(uGamma);
 #undef L
         glUseProgram(prog);
         glUniform1i(uTex0, 0);
@@ -287,6 +293,7 @@ struct RS {
     int fogMode = 0;
     bool fogEnable = false;
     float alphaRef = 0.1f;
+    float gamma = 1.0f;
     bool useTexture = true, useLightmap = false, lighting = false;
     glm::vec3 l0 = {0.173913f, 0.869565f, -0.608696f};
     glm::vec3 l1 = {-0.173913f, 0.869565f, 0.608696f};
@@ -316,6 +323,7 @@ static void pushRenderState() {
     glUniform1i(s_shader.uUseTexture, s_rs.useTexture ? 1 : 0);
     glUniform1i(s_shader.uUseLightmap, s_rs.useLightmap ? 1 : 0);
     glUniform1f(s_shader.uAlphaRef, s_rs.alphaRef);
+    glUniform1f(s_shader.uGamma, s_rs.gamma);
     glUniform4fv(s_shader.uLMTransform, 1, glm::value_ptr(s_rs.lmt));
     glUniform2fv(s_shader.uGlobalLM, 1, glm::value_ptr(s_rs.globalLM));
     flushMatrices();
@@ -1043,7 +1051,11 @@ void C4JRender::EndConditionalSurvey() {}
 void C4JRender::BeginConditionalRendering(int) {}
 void C4JRender::EndConditionalRendering() {}
 void C4JRender::Tick() {}
-void C4JRender::UpdateGamma(unsigned short) {}
+void C4JRender::UpdateGamma(unsigned short usGamma) {
+    constexpr unsigned short GAMMA_MAX = 32768;
+
+    s_rs.gamma = 0.5 + ((float)(usGamma) * (1.0 / GAMMA_MAX));
+}
 void C4JRender::BeginEvent(const wchar_t*) {}
 void C4JRender::EndEvent() {}
 void C4JRender::Suspend() {}
