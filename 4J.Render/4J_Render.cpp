@@ -411,20 +411,13 @@ static bool isQuadPrim(int pt) {
 static GLenum mapPrim(int pt) {
     if (isQuadPrim(pt)) return GL_TRIANGLES;
     switch (pt) {
-        case 0x0003:
-            return GL_LINE_STRIP;
-        case 0x0006:
-            return GL_TRIANGLE_FAN;
-        case C4JRender::PRIMITIVE_TYPE_TRIANGLE_LIST:
-            return GL_TRIANGLES;
-        case C4JRender::PRIMITIVE_TYPE_TRIANGLE_STRIP:
-            return GL_TRIANGLE_STRIP;
-        case C4JRender::PRIMITIVE_TYPE_TRIANGLE_FAN:
-            return GL_TRIANGLE_FAN;
-        case C4JRender::PRIMITIVE_TYPE_LINE_LIST:
-            return GL_LINES;
-        case C4JRender::PRIMITIVE_TYPE_LINE_STRIP:
-            return GL_LINE_STRIP;
+        case 0: return GL_TRIANGLES;      // Engine TRIANGLE_LIST
+        case 1: return GL_LINES;          // OpenGL GL_LINES
+        case 2: return GL_TRIANGLE_FAN;   // Engine TRIANGLE_FAN
+        case 3: return GL_LINE_STRIP;     // OpenGL GL_LINE_STRIP
+        case 4: return GL_TRIANGLES;      // OpenGL GL_TRIANGLES
+        case 5: return GL_TRIANGLE_STRIP; // OpenGL GL_TRIANGLE_STRIP
+        case 6: return GL_TRIANGLE_FAN;   // OpenGL GL_TRIANGLE_FAN
         default:
             return GL_TRIANGLES;
     }
