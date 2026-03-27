@@ -910,7 +910,6 @@ void C4JRender::StateSetFogColour(float r, float g, float b) {
 }
 void C4JRender::StateSetLightingEnable(bool e) {
     s_rs.lighting = e;
-    if (e) s_rs.useLightmap = false;
     s_rs_dirty = true;
 }
 void C4JRender::StateSetLightColour(int, float r, float g, float b) {
@@ -950,12 +949,6 @@ void C4JRender::StateSetTextureEnable(bool e) {
         if (s_shader.prog) {
             glUseProgram(s_shader.prog);
             glUniform1i(s_shader.uUseTexture, e ? 1 : 0);
-        }
-    } else {
-        s_rs.useLightmap = e;
-        if (s_shader.prog) {
-            glUseProgram(s_shader.prog);
-            glUniform1i(s_shader.uUseLightmap, e ? 1 : 0);
         }
     }
 }
