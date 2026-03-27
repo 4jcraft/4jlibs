@@ -84,6 +84,7 @@ layout(location=4) in ivec2 aLMraw;
 
 uniform mat4  uMVP;
 uniform mat4  uMV;
+uniform mat4  uTexMat0;
 uniform vec4  uBaseColor;
 uniform int   uLighting;
 uniform vec3  uLight0Dir;
@@ -105,7 +106,7 @@ out float vFogFactor;
 void main() {
     vec4 eyePos  = uMV  * vec4(aPos, 1.0);
     gl_Position  = uMVP * vec4(aPos, 1.0);
-    vUV0 = aUV0;
+    vUV0 = (uTexMat0 * vec4(aUV0, 0.0, 1.0)).xy; 
 
     vec2 lm = (aLMraw.x <= -500) ? uGlobalLM : vec2(aLMraw);
     vUV1 = (lm / 256.0) * uLMTransform.xy + uLMTransform.zw;
@@ -201,6 +202,7 @@ static GLuint linkProgram(GLuint v, GLuint f) {
 struct ShaderUniforms {
     GLuint prog = 0;
     GLint uMVP = -1, uMV = -1, uBaseColor = -1;
+    GLint uTexMat0 = -1;
     GLint uLighting = -1, uLight0Dir = -1, uLight1Dir = -1;
     GLint uLightDiff = -1, uLightAmb = -1;
     GLint uFogMode = -1, uFogStart = -1, uFogEnd = -1;
@@ -220,6 +222,7 @@ struct ShaderUniforms {
 #define L(x) x = glGetUniformLocation(prog, #x)
         L(uMVP);
         L(uMV);
+        L(uTexMat0); 
         L(uBaseColor);
         L(uLighting);
         L(uLight0Dir);
@@ -285,8 +288,10 @@ static void flushMatrices() {
     glm::mat4 mvp = s_proj.cur() * s_mv.cur();
     glUniformMatrix4fv(s_shader.uMVP, 1, GL_FALSE, glm::value_ptr(mvp));
     glUniformMatrix4fv(s_shader.uMV, 1, GL_FALSE, glm::value_ptr(s_mv.cur()));
+    
+    // Send the texture matrix to the depths of hell...
+    glUniformMatrix4fv(s_shader.uTexMat0, 1, GL_FALSE, glm::value_ptr(s_tex[0].cur()));
 }
-
 // Render state
 struct RS {
     glm::vec4 baseColor = {1, 1, 1, 1};
