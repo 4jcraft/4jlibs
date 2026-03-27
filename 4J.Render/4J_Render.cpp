@@ -908,7 +908,11 @@ void C4JRender::StateSetFogDensity(float d) { s_rs.fogDensity = d; }
 void C4JRender::StateSetFogColour(float r, float g, float b) {
     s_rs.fogColor = {r, g, b, 1};
 }
-void C4JRender::StateSetLightingEnable(bool e) { s_rs.lighting = e;  s_rs_dirty = true;  }
+void C4JRender::StateSetLightingEnable(bool e) {
+    s_rs.useLightmap = e;
+    if (e) s_rs.useLightmap = false;
+    s_rs_dirty = true;
+}
 void C4JRender::StateSetLightColour(int, float r, float g, float b) {
     s_rs.ldiff = {r, g, b};  s_rs_dirty = true; 
 }
