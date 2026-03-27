@@ -909,7 +909,7 @@ void C4JRender::StateSetFogColour(float r, float g, float b) {
     s_rs.fogColor = {r, g, b, 1};
 }
 void C4JRender::StateSetLightingEnable(bool e) {
-    s_rs.useLightmap = e;
+    s_rs.lighting = e;
     if (e) s_rs.useLightmap = false;
     s_rs_dirty = true;
 }
