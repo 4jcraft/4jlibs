@@ -907,15 +907,13 @@ void C4JRender::StateSetLightAmbientColour(float r, float g, float b) {
     s_rs.lamb = {r, g, b};
 }
 void C4JRender::StateSetLightDirection(int light, float x, float y, float z) {
-    glm::vec4 lightDirObj(x, y, z, 0.0f);
-    glm::vec4 lightDirEye = s_mv.cur() * lightDirObj;
-    
-    glm::vec3 d = glm::normalize(glm::vec3(lightDirEye));
+    glm::vec3 d = glm::normalize(glm::mat3(s_mv.cur()) * glm::vec3(x, y, z));
     if (light == 0)
         s_rs.l0 = d;
     else
         s_rs.l1 = d;
 }
+
 void C4JRender::StateSetLightEnable(int, bool) {}
 void C4JRender::StateSetViewport(eViewportType) {
     glViewport(0, 0, s_windowWidth, s_windowHeight);
