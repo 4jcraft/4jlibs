@@ -48,8 +48,8 @@ static SDL_GLContext s_glContext = nullptr;
 static bool s_shouldClose = false;
 static int s_windowWidth = 1920;
 static int s_windowHeight = 1080;
-static int s_reqWidth = 0;
-static int s_reqHeight = 0;
+static int s_reqWidth = 1920;
+static int s_reqHeight = 1080;
 static bool s_fullscreen = false;
 
 static pthread_key_t s_glCtxKey;
