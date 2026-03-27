@@ -112,10 +112,12 @@ void main() {
 
     bool sentinel = (aColor == vec4(0.0));
     vec4 col = sentinel ? uBaseColor : aColor.abgr;
-
     if (uLighting == 1) {
         mat3 normalMatrix = transpose(inverse(mat3(uMV)));
         vec3 n   = normalize(normalMatrix * aNormal);
+        if (determinant(mat3(uMV)) < 0.0) {
+            n = -n;
+        }
         float d0 = max(dot(n, uLight0Dir), 0.0);
         float d1 = max(dot(n, uLight1Dir), 0.0);
         vColor = vec4(col.rgb * (uLightAmbient + uLightDiffuse * (d0 + d1)), col.a);
@@ -900,7 +902,10 @@ void C4JRender::StateSetLightAmbientColour(float r, float g, float b) {
     s_rs.lamb = {r, g, b};
 }
 void C4JRender::StateSetLightDirection(int light, float x, float y, float z) {
-    glm::vec3 d = glm::normalize(glm::vec3(x, y, z));
+    glm::vec4 lightDirObj(x, y, z, 0.0f);
+    glm::vec4 lightDirEye = s_mv.cur() * lightDirObj;
+    
+    glm::vec3 d = glm::normalize(glm::vec3(lightDirEye));
     if (light == 0)
         s_rs.l0 = d;
     else
