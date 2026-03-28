@@ -1,9 +1,3 @@
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
-#include <GL/glext.h>
-#include <glm/matrix.hpp>
-#endif
-
 #include "gl3_loader.h"
 #include "4J_Render.h"
 
@@ -34,7 +28,6 @@
 #include <cstring>
 #include <cstdlib>
 #include <cstdio>
-#include <cmath>
 #include <cassert>
 #include <unordered_map>
 #include <vector>
