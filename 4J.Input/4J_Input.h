@@ -121,6 +121,7 @@ public:
                                     int (*Func)(void*, const bool),
                                     void* lpParam,
                                     C_4JInput::EKeyboardMode eMode);
+    bool GetMenuDisplayed(int);
     void GetText(uint16_t* UTF16String);
 
     // Online check strings against offensive list - TCR 92
