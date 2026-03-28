@@ -43,6 +43,8 @@
 
 C4JRender RenderManager;
 
+// MARK: Vertex shader
+
 // Vertex shader source
 #ifdef GLES
 static const char* VERT_SRC = R"GLSL(
@@ -171,6 +173,8 @@ void main() {
 )GLSL";
 #endif
 
+// MARK: Fragment shader
+
 // Fragment shader source
 #ifdef GLES
 static const char* FRAG_SRC = R"GLSL(
@@ -236,6 +240,8 @@ void main() {
 }
 )GLSL";
 #endif
+
+// MARK: OpenGL state
 
 // Hello SDL and opengl 3.3
 static SDL_Window* s_window = nullptr;
@@ -305,11 +311,12 @@ static GLuint linkProgram(GLuint v, GLuint f) {
 // Shader struct
 struct ShaderUniforms {
     GLuint prog = 0;
+
     GLint uMVP = -1, uMV = -1, uBaseColor = -1;
     GLint uTexMat0 = -1;
     GLint uNormalMatrix = -1, uNormalSign = -1;
     GLint uLighting = -1, uLight0Dir = -1, uLight1Dir = -1;
-    GLint uLightDiff = -1, uLightAmb = -1;
+    GLint uLightDiffuse = -1, uLightAmbient = -1;
     GLint uFogMode = -1, uFogStart = -1, uFogEnd = -1;
     GLint uFogDensity = -1, uFogColor = -1, uFogEnable = -1;
     GLint uLMTransform = -1, uUseLightmap = -1, uAlphaRef = -1;
@@ -325,16 +332,19 @@ struct ShaderUniforms {
         glDeleteShader(v);
         glDeleteShader(f);
         if (!prog) return;
+
 #define L(x) x = glGetUniformLocation(prog, #x)
         L(uMVP);
         L(uMV);
-        L(uNormalMatrix), L(uNormalSign), L(uTexMat0);
+        L(uNormalMatrix);
+        L(uNormalSign);
+        L(uTexMat0);
         L(uBaseColor);
         L(uLighting);
         L(uLight0Dir);
         L(uLight1Dir);
-        uLightDiff = glGetUniformLocation(prog, "uLightDiffuse");
-        uLightAmb = glGetUniformLocation(prog, "uLightAmbient");
+        L(uLightDiffuse);
+        L(uLightAmbient);
         L(uFogMode);
         L(uFogStart);
         L(uFogEnd);
@@ -351,6 +361,7 @@ struct ShaderUniforms {
         L(uInvGamma);
         L(uChunkOffset);
 #undef L
+
         glUseProgram(prog);
         glUniform1i(uTex0, 0);
         glUniform1i(uTex1, 1);
@@ -411,7 +422,7 @@ static void flushMatrices() {
 }
 
 // Render state
-struct RS {
+struct RenderState {
     glm::vec4 baseColor = {1, 1, 1, 1};
     glm::vec4 fogColor = {0, 0, 0, 1};
     float fogStart = 0, fogEnd = 1000, fogDensity = 0;
@@ -428,7 +439,7 @@ struct RS {
     glm::vec2 globalLM = {240.f, 240.f};  // fullbright default
     int activeTexture = 0;
     // we MAKE sure everything is FINE.
-    bool operator!=(const RS& o) const {
+    bool operator!=(const RenderState& o) const {
         return baseColor != o.baseColor || fogColor != o.fogColor ||
                fogStart != o.fogStart || fogEnd != o.fogEnd ||
                fogDensity != o.fogDensity || fogMode != o.fogMode ||
@@ -441,8 +452,8 @@ struct RS {
     }
 };
 
-static thread_local RS s_rs;
-static RS s_gpu_state;
+static thread_local RenderState s_rs;
+static RenderState s_gpu_state;
 static bool s_gpu_state_valid = false;
 
 // track currently bound program to avoid iggy shitting up
@@ -462,8 +473,8 @@ static void pushRenderState() {
         glUniform1i(s_shader.uLighting, s_rs.lighting ? 1 : 0);
         glUniform3fv(s_shader.uLight0Dir, 1, glm::value_ptr(s_rs.l0));
         glUniform3fv(s_shader.uLight1Dir, 1, glm::value_ptr(s_rs.l1));
-        glUniform3fv(s_shader.uLightDiff, 1, glm::value_ptr(s_rs.ldiff));
-        glUniform3fv(s_shader.uLightAmb, 1, glm::value_ptr(s_rs.lamb));
+        glUniform3fv(s_shader.uLightDiffuse, 1, glm::value_ptr(s_rs.ldiff));
+        glUniform3fv(s_shader.uLightAmbient, 1, glm::value_ptr(s_rs.lamb));
         glUniform1i(s_shader.uFogMode, s_rs.fogMode);
         glUniform1f(s_shader.uFogStart, s_rs.fogStart);
         glUniform1f(s_shader.uFogEnd, s_rs.fogEnd);
@@ -570,6 +581,8 @@ static GLenum mapPrim(int pt) {
     }
 }
 
+// MARK: Renderer impl
+
 // Initialises the renderer
 void C4JRender::Initialise() {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
@@ -614,11 +627,6 @@ void C4JRender::Initialise() {
 #ifndef GLES
     gl3_load();
 #endif
-#ifdef ENABLE_VSYNC
-    SDL_GL_SetSwapInterval(1);
-#else
-    SDL_GL_SetSwapInterval(0);
-#endif
     int fw, fh;
     SDL_GetWindowSize(s_window, &fw, &fh);
     onFramebufferResize(fw, fh);
@@ -659,6 +667,12 @@ void C4JRender::Initialise() {
     }
     SDL_GL_MakeCurrent(s_window, s_glContext);
     pushRenderState();
+
+#ifdef ENABLE_VSYNC
+    SDL_GL_SetSwapInterval(1);
+#else
+    SDL_GL_SetSwapInterval(0);
+#endif
 }
 
 void C4JRender::InitialiseContext() {
@@ -1222,6 +1236,8 @@ void C4JRender::UpdateGamma(unsigned short usGamma) {
     constexpr unsigned short GAMMA_MAX = 32768;
     s_rs.gamma = 0.5f + ((float)(usGamma) * (1.0f / GAMMA_MAX));
 }
+
+// MARK: C hooks
 
 int glGenTextures_4J() {
     GLuint id = 0;
