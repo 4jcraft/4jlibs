@@ -1,0 +1,6 @@
+option(
+    'gles',
+    type: 'boolean',
+    value: false,
+    description: 'Use OpenGL ES instead of Desktop GL',
+)

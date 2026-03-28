@@ -1,4 +1,11 @@
-gl_dep = dependency('gl', required: false)
+use_gles = get_option('gles')
+
+if use_gles
+  gl_dep = dependency('glesv2', required: true)
+else
+  gl_dep = dependency('gl', required: false)
+endif
+
 sdl2_dep = dependency('sdl2', required: false)
 thread_dep = dependency('threads')
 
@@ -17,6 +24,10 @@ fourj_cpp_defs = [
   '-DDEBUG',
 ]
 
+if use_gles
+  fourj_cpp_defs += ['-DGLES']
+endif
+
 if host_machine.system() == 'linux'
   fourj_cpp_defs += [
     '-Dlinux',
@@ -32,7 +43,9 @@ lib_render = static_library(
   render_sources,
   include_directories: render_inc,
   dependencies: [sdl2_dep, gl_dep, thread_dep],
-  cpp_args: fourj_cpp_args + fourj_cpp_defs + [
+  cpp_args: fourj_cpp_args
+  + fourj_cpp_defs
+  + [
     '-include', meson.current_source_dir() / '../4J.Render/stdafx.h',
   ],
 )
@@ -56,7 +69,9 @@ lib_input = static_library(
   input_sources,
   include_directories: input_inc,
   dependencies: [sdl2_dep],
-  cpp_args: fourj_cpp_args + fourj_cpp_defs + [
+  cpp_args: fourj_cpp_args
+  + fourj_cpp_defs
+  + [
     '-include', meson.current_source_dir() / '../4J.Input/stdafx.h',
   ],
 )
@@ -80,7 +95,9 @@ lib_profile = static_library(
   '4J_Profile',
   profile_sources,
   include_directories: profile_inc,
-  cpp_args: fourj_cpp_args + fourj_cpp_defs + [
+  cpp_args: fourj_cpp_args
+  + fourj_cpp_defs
+  + [
     '-include', meson.current_source_dir() / '../4J.Profile/stdafx.h',
   ],
 )
@@ -92,16 +109,18 @@ profile_dep = declare_dependency(
 storage_inc = include_directories('../4J.Storage', '../4J.Common')
 storage_sources = files(
   '../4J.Storage/4J_Storage.cpp',
-  '../4J.Storage/stdafx.cpp',
   '../4J.Storage/STO_DLC.cpp',
   '../4J.Storage/STO_Main.cpp',
   '../4J.Storage/STO_SaveGame.cpp',
+  '../4J.Storage/stdafx.cpp',
 )
 lib_storage = static_library(
   '4J_Storage',
   storage_sources,
   include_directories: storage_inc,
-  cpp_args: fourj_cpp_args + fourj_cpp_defs + [
+  cpp_args: fourj_cpp_args
+  + fourj_cpp_defs
+  + [
     '-include', meson.current_source_dir() / '../4J.Storage/stdafx.h',
   ],
 )
