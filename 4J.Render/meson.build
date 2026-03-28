@@ -13,6 +13,7 @@ endif
 render_sources = files(
   '4J_Render.cpp',
   'stdafx.cpp',
+  'stubs.cpp',
 )
 
 lib_render = static_library(

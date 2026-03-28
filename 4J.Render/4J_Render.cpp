@@ -11,7 +11,6 @@
 #undef glGenTextures
 #undef glDeleteTextures
 #undef glTexImage2D
-#undef glReadPixels
 #undef glCallLists
 #undef glFog
 #undef glLight
@@ -847,7 +846,12 @@ void C4JRender::DrawVertices(ePrimitiveType ptype, int count, void* dataIn,
     pthread_mutex_unlock(&s_glCallMtx);
 }
 
-void C4JRender::CBuffLockStaticCreations() {}
+void C4JRender::ReadPixels(int x, int y, int w, int h, void* buf) {
+    if (!buf) return;
+    pthread_mutex_lock(&s_glCallMtx);
+    glReadPixels(x, y, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buf);
+    pthread_mutex_unlock(&s_glCallMtx);
+}
 
 int C4JRender::CBuffCreate(int count) {
     pthread_mutex_lock(&s_glCallMtx);
@@ -935,11 +939,6 @@ bool C4JRender::CBuffCall(int index, bool) {
     pthread_mutex_unlock(&s_glCallMtx);
     return true;
 }
-
-int C4JRender::CBuffSize(int) { return 0; }
-void C4JRender::CBuffTick() {}
-void C4JRender::CBuffDeferredModeStart() {}
-void C4JRender::CBuffDeferredModeEnd() {}
 
 void C4JRender::MatrixMode(int t) {
     if (t == GL_PROJECTION)
@@ -1084,16 +1083,14 @@ void C4JRender::StateSetLightDirection(int light, float x, float y, float z) {
         s_rs.l1 = d;
 }
 
-void C4JRender::StateSetLightEnable(int, bool) {}
 void C4JRender::StateSetViewport(eViewportType) {
     glViewport(0, 0, s_windowWidth, s_windowHeight);
 }
-void C4JRender::StateSetEnableViewportClipPlanes(bool) {}
+
 void C4JRender::StateSetVertexTextureUV(float u, float v) {
     s_rs.globalLM = {u, v};
 }
-void C4JRender::StateSetForceLOD(int) {}
-void C4JRender::StateSetTexGenCol(int, float, float, float, float, bool) {}
+
 void C4JRender::StateSetStencil(int fn, uint8_t ref, uint8_t fmask,
                                 uint8_t wmask) {
     glEnable(GL_STENCIL_TEST);
@@ -1173,10 +1170,6 @@ void C4JRender::TextureDataUpdate(int xo, int yo, int w, int h, void* d,
 void C4JRender::TextureSetParam(int p, int v) {
     glTexParameteri(GL_TEXTURE_2D, p, v);
 }
-void C4JRender::TextureDynamicUpdateStart() {}
-void C4JRender::TextureDynamicUpdateEnd() {}
-void C4JRender::TextureGetStats() {}
-void* C4JRender::TextureGetTexture(int) { return nullptr; }
 
 static int stbLoad(unsigned char* data, int w, int h, D3DXIMAGE_INFO* info,
                    int** out) {
@@ -1210,31 +1203,12 @@ int C4JRender::LoadTextureData(uint8_t* pb, uint32_t nb, D3DXIMAGE_INFO* i,
     stbi_image_free(d);
     return hr;
 }
-int C4JRender::SaveTextureData(const char*, D3DXIMAGE_INFO*, int*) { return 0; }
-int C4JRender::SaveTextureDataToMemory(void*, int, int*, int, int, int*) {
-    return 0;
-}
 
-void C4JRender::DoScreenGrabOnNextPresent() {}
-void C4JRender::CaptureThumbnail(ImageFileBuffer*) {}
-void C4JRender::CaptureScreen(ImageFileBuffer*, XSOCIAL_PREVIEWIMAGE*) {}
-void C4JRender::BeginConditionalSurvey(int) {}
-void C4JRender::EndConditionalSurvey() {}
-void C4JRender::BeginConditionalRendering(int) {}
-void C4JRender::EndConditionalRendering() {}
-void C4JRender::Tick() {}
 void C4JRender::UpdateGamma(unsigned short usGamma) {
     constexpr unsigned short GAMMA_MAX = 32768;
 
     s_rs.gamma = 0.5 + ((float)(usGamma) * (1.0 / GAMMA_MAX));
 }
-void C4JRender::BeginEvent(const wchar_t*) {}
-void C4JRender::EndEvent() {}
-void C4JRender::Suspend() {}
-bool C4JRender::Suspended() { return false; }
-void C4JRender::Resume() {}
-
-// todo: transfer the last funcs
 
 int glGenTextures_4J() {
     GLuint id = 0;

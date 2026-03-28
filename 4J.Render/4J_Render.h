@@ -178,6 +178,7 @@ public:
                                 int* outputLength, int width, int height,
                                 int* ppDataIn);
 
+    void ReadPixels(int x, int y, int w, int h, void* buf);
     void TextureGetStats();
     void* TextureGetTexture(int idx);
 

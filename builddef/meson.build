@@ -37,7 +37,11 @@ if host_machine.system() == 'linux'
 endif
 
 render_inc = include_directories('../4J.Render', '../4J.Common')
-render_sources = files('../4J.Render/4J_Render.cpp', '../4J.Render/stdafx.cpp')
+render_sources = files(
+  '../4J.Render/4J_Render.cpp',
+  '../4J.Render/stdafx.cpp',
+  '../4J.Render/stubs.cpp',
+)
 lib_render = static_library(
   '4J_Render',
   render_sources,
