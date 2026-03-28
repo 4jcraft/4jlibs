@@ -1,5 +1,7 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#include <GL/glext.h>
+#include <glm/matrix.hpp>
 #endif
 
 #include "gl3_loader.h"
@@ -83,9 +85,10 @@ layout(location=2) in vec4  aColor;
 layout(location=3) in vec3  aNormal;
 layout(location=4) in ivec2 aLMraw;
 
-uniform mat3 uNormalMatrix;
 uniform mat4  uMVP;
 uniform mat4  uMV;
+uniform mat3  uNormalMatrix;
+uniform float uNormalSign;
 uniform mat4  uTexMat0;
 uniform vec4  uBaseColor;
 uniform int   uLighting;
@@ -106,22 +109,19 @@ out vec4  vColor;
 out float vFogFactor;
 
 void main() {
-    vec4 eyePos  = uMV  * vec4(aPos, 1.0);
-    gl_Position  = uMVP * vec4(aPos, 1.0);
+    vec4 aPos4   = vec4(aPos, 1.0);
+    vec4 eyePos  = uMV  * aPos4;
+    gl_Position  = uMVP * aPos4;
     vUV0 = (uTexMat0 * vec4(aUV0, 0.0, 1.0)).xy; 
 
     vec2 lm = (aLMraw.x <= -500) ? uGlobalLM : vec2(aLMraw);
     vUV1 = (lm / 256.0) * uLMTransform.xy + uLMTransform.zw;
 
-    bool sentinel = (aColor == vec4(0.0));
+    bool sentinel = aColor.a == 0.0;
     vec4 col = sentinel ? uBaseColor : aColor.abgr;
     if (uLighting == 1) {
         mat3 m3 = mat3(uMV);
-        mat3 normalMatrix = transpose(inverse(m3));
-        vec3 n = normalize(normalMatrix * aNormal);
-                if (determinant(m3) < 0.0) {
-            n = -n;
-        }
+        vec3 n = normalize(uNormalMatrix * aNormal) * uNormalSign;
 
         float d0 = max(dot(n, uLight0Dir), 0.0);
         float d1 = max(dot(n, uLight1Dir), 0.0);
@@ -207,6 +207,7 @@ struct ShaderUniforms {
     GLuint prog = 0;
     GLint uMVP = -1, uMV = -1, uBaseColor = -1;
     GLint uTexMat0 = -1;
+    GLint uNormalMatrix = -1, uNormalSign = -1;
     GLint uLighting = -1, uLight0Dir = -1, uLight1Dir = -1;
     GLint uLightDiff = -1, uLightAmb = -1;
     GLint uFogMode = -1, uFogStart = -1, uFogEnd = -1;
@@ -215,7 +216,6 @@ struct ShaderUniforms {
     GLint uTex0 = -1, uTex1 = -1, uGlobalLM = -1;
     GLint uUseTexture = -1;
     GLint uGamma = -1;
-    GLint uNormalMat = -1;
 
     void build(const char* vs, const char* fs) {
         GLuint v = compileShader(GL_VERTEX_SHADER, vs);
@@ -227,7 +227,7 @@ struct ShaderUniforms {
 #define L(x) x = glGetUniformLocation(prog, #x)
         L(uMVP);
         L(uMV);
-        L(uTexMat0);
+        L(uNormalMatrix), L(uNormalSign), L(uTexMat0);
         L(uBaseColor);
         L(uLighting);
         L(uLight0Dir);
@@ -293,9 +293,17 @@ static void flushMatrices() {
     glm::mat4 mvp = s_proj.cur() * s_mv.cur();
     glUniformMatrix4fv(s_shader.uMVP, 1, GL_FALSE, glm::value_ptr(mvp));
     glUniformMatrix4fv(s_shader.uMV, 1, GL_FALSE, glm::value_ptr(s_mv.cur()));
-    
+
     // Send the texture matrix to the depths of hell...
-    glUniformMatrix4fv(s_shader.uTexMat0, 1, GL_FALSE, glm::value_ptr(s_tex[0].cur()));
+    glUniformMatrix4fv(s_shader.uTexMat0, 1, GL_FALSE,
+                       glm::value_ptr(s_tex[0].cur()));
+
+    if (s_shader.uLighting) {
+        auto m3 = glm::mat3(s_mv.cur());
+        glUniformMatrix3fv(s_shader.uNormalMatrix, 1, GL_FALSE,
+                           glm::value_ptr(glm::transpose(glm::inverse(m3))));
+        glUniform1f(s_shader.uNormalSign, glm::determinant(m3) < 0.0 ? -1 : 1);
+    }
 }
 // Render state
 struct RS {
@@ -411,13 +419,20 @@ static bool isQuadPrim(int pt) {
 static GLenum mapPrim(int pt) {
     if (isQuadPrim(pt)) return GL_TRIANGLES;
     switch (pt) {
-        case 0: return GL_TRIANGLES;      // Engine TRIANGLE_LIST
-        case 1: return GL_LINES;          // OpenGL GL_LINES
-        case 2: return GL_TRIANGLE_FAN;   // Engine TRIANGLE_FAN
-        case 3: return GL_LINE_STRIP;     // OpenGL GL_LINE_STRIP
-        case 4: return GL_TRIANGLES;      // OpenGL GL_TRIANGLES
-        case 5: return GL_TRIANGLE_STRIP; // OpenGL GL_TRIANGLE_STRIP
-        case 6: return GL_TRIANGLE_FAN;   // OpenGL GL_TRIANGLE_FAN
+        case 0:
+            return GL_TRIANGLES;  // Engine TRIANGLE_LIST
+        case 1:
+            return GL_LINES;  // OpenGL GL_LINES
+        case 2:
+            return GL_TRIANGLE_FAN;  // Engine TRIANGLE_FAN
+        case 3:
+            return GL_LINE_STRIP;  // OpenGL GL_LINE_STRIP
+        case 4:
+            return GL_TRIANGLES;  // OpenGL GL_TRIANGLES
+        case 5:
+            return GL_TRIANGLE_STRIP;  // OpenGL GL_TRIANGLE_STRIP
+        case 6:
+            return GL_TRIANGLE_FAN;  // OpenGL GL_TRIANGLE_FAN
         default:
             return GL_TRIANGLES;
     }
@@ -832,8 +847,8 @@ const float* C4JRender::MatrixGet(int t) {
 }
 void C4JRender::Set_matrixDirty() {
     // iggy wipes opengl state
-    s_rs_dirty = true; 
-    
+    s_rs_dirty = true;
+
     if (s_shader.prog) {
         glUseProgram(s_shader.prog);
     }
@@ -913,10 +928,12 @@ void C4JRender::StateSetLightingEnable(bool e) {
     s_rs_dirty = true;
 }
 void C4JRender::StateSetLightColour(int, float r, float g, float b) {
-    s_rs.ldiff = {r, g, b};  s_rs_dirty = true; 
+    s_rs.ldiff = {r, g, b};
+    s_rs_dirty = true;
 }
 void C4JRender::StateSetLightAmbientColour(float r, float g, float b) {
-    s_rs.lamb = {r, g, b};  s_rs_dirty = true; 
+    s_rs.lamb = {r, g, b};
+    s_rs_dirty = true;
 }
 void C4JRender::StateSetLightDirection(int light, float x, float y, float z) {
     glm::vec3 d = glm::normalize(glm::mat3(s_mv.cur()) * glm::vec3(x, y, z));
