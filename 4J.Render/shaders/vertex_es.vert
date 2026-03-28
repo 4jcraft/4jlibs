@@ -1,7 +1,4 @@
-#ifdef CPP_GLSL_INCLUDE
-static const char* VERT_SRC = R"GLSL(
-#endif
-
+R"GLSL(
 #version 300 es
 precision highp float;
 precision highp int;
@@ -63,7 +60,4 @@ void main() {
     else if (uFogMode == 3) { float d = uFogDensity * eDist; vFogFactor = clamp(exp(-d*d), 0.0, 1.0); }
     else                    vFogFactor = 1.0;
 }
-
-#ifdef CPP_GLSL_INCLUDE
 )GLSL";
-#endif

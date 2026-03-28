@@ -1,7 +1,4 @@
-#ifdef CPP_GLSL_INCLUDE
-static const char* FRAG_SRC = R"GLSL(
-#endif
-
+R"GLSL(
 #version 330 core
 uniform sampler2D uTex0;
 uniform sampler2D uTex1;
@@ -29,7 +26,4 @@ void main() {
 
     oColor = c;
 }
-
-#ifdef CPP_GLSL_INCLUDE
 )GLSL";
-#endif

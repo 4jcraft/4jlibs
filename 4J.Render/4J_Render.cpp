@@ -38,15 +38,22 @@ C4JRender RenderManager;
 
 // MARK: Shaders
 
-
 #define CPP_GLSL_INCLUDE
 
 #ifdef GLES
+static const char* VERT_SRC = 
 #include "shaders/vertex_es.vert"
+;
+static const char* FRAG_SRC = 
 #include "shaders/fragment_es.frag"
+;
 #else
+static const char* VERT_SRC = 
 #include "shaders/vertex.vert"
+;
+static const char* FRAG_SRC = 
 #include "shaders/fragment.frag"
+;
 #endif
 
 #undef CPP_GLSL_INCLUDE

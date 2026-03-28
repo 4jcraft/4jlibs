@@ -1,7 +1,4 @@
-#ifdef CPP_GLSL_INCLUDE
-static const char* FRAG_SRC = R"GLSL(
-#endif
-
+R"GLSL(
 #version 300 es
 precision mediump float;
 precision mediump int;
@@ -32,7 +29,4 @@ void main() {
 
     oColor = c;
 }
-
-#ifdef CPP_GLSL_INCLUDE
 )GLSL";
-#endif
