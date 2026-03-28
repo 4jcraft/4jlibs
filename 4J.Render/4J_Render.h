@@ -66,6 +66,7 @@ public:
     void Present();
     void Clear(int flags);
     void SetClearColour(const float colourRGBA[4]);
+    void SetChunkOffset(float x, float y, float z);
     bool IsWidescreen();
     bool IsHiDef();
     void GetFramebufferSize(int& width, int& height);

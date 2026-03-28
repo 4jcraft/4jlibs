@@ -96,6 +96,7 @@ uniform vec3  uLight0Dir;
 uniform vec3  uLight1Dir;
 uniform vec3  uLightDiffuse;
 uniform vec3  uLightAmbient;
+uniform vec3  uChunkOffset;
 uniform int   uFogMode;
 uniform float uFogStart;
 uniform float uFogEnd;
@@ -109,7 +110,7 @@ out vec4  vColor;
 out float vFogFactor;
 
 void main() {
-    vec4 aPos4   = vec4(aPos, 1.0);
+    vec4 aPos4   = vec4(aPos + uChunkOffset, 1.0);
     vec4 eyePos  = uMV  * aPos4;
     gl_Position  = uMVP * aPos4;
     vUV0 = (uTexMat0 * vec4(aUV0, 0.0, 1.0)).xy; 
@@ -215,6 +216,7 @@ struct ShaderUniforms {
     GLint uTex0 = -1, uTex1 = -1, uGlobalLM = -1;
     GLint uUseTexture = -1;
     GLint uInvGamma = -1;
+    GLint uChunkOffset = -1;
 
     void build(const char* vs, const char* fs) {
         GLuint v = compileShader(GL_VERTEX_SHADER, vs);
@@ -247,6 +249,7 @@ struct ShaderUniforms {
         L(uGlobalLM);
         L(uUseTexture);
         L(uInvGamma);
+        L(uChunkOffset);
 #undef L
         glUseProgram(prog);
         glUniform1i(uTex0, 0);
@@ -861,6 +864,9 @@ bool C4JRender::IsWidescreen() { return true; }
 bool C4JRender::IsHiDef() { return true; }
 void C4JRender::StateSetColour(float r, float g, float b, float a) {
     s_rs.baseColor = {r, g, b, a};
+}
+void C4JRender::SetChunkOffset(float x, float y, float z) {
+    if (s_shader.uChunkOffset >= 0) glUniform3f(s_shader.uChunkOffset, x, y, z);
 }
 void C4JRender::StateSetDepthMask(bool e) {
     glDepthMask(e ? GL_TRUE : GL_FALSE);
