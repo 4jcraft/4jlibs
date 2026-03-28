@@ -400,11 +400,13 @@ static void flushMatrices() {
     glUniformMatrix4fv(s_shader.uTexMat0, 1, GL_FALSE,
                        glm::value_ptr(s_tex[0].cur()));
 
-    if (s_shader.uLighting) {
+    // if (s_shader.uLighting)
+    if (s_shader.uNormalMatrix >= 0) {
         auto m3 = glm::mat3(s_mv.cur());
         glUniformMatrix3fv(s_shader.uNormalMatrix, 1, GL_FALSE,
                            glm::value_ptr(glm::transpose(glm::inverse(m3))));
-        glUniform1f(s_shader.uNormalSign, glm::determinant(m3) < 0.0 ? -1 : 1);
+        glUniform1f(s_shader.uNormalSign,
+                    glm::determinant(m3) < 0.0f ? -1.0f : 1.0f);
     }
 }
 
@@ -443,9 +445,18 @@ static thread_local RS s_rs;
 static RS s_gpu_state;
 static bool s_gpu_state_valid = false;
 
+// track currently bound program to avoid iggy shitting up
+static GLuint s_boundProgram = 0;
+
 static void pushRenderState() {
     if (!s_shader.prog) return;
-    glUseProgram(s_shader.prog);
+
+    // only call glUseProgram when something actually changed the binding
+    if (s_boundProgram != s_shader.prog) {
+        glUseProgram(s_shader.prog);
+        s_boundProgram = s_shader.prog;
+    }
+
     if (!s_gpu_state_valid || s_gpu_state != s_rs) {
         glUniform4fv(s_shader.uBaseColor, 1, glm::value_ptr(s_rs.baseColor));
         glUniform1i(s_shader.uLighting, s_rs.lighting ? 1 : 0);
@@ -462,10 +473,11 @@ static void pushRenderState() {
         glUniform1i(s_shader.uUseTexture, s_rs.useTexture ? 1 : 0);
         glUniform1i(s_shader.uUseLightmap, s_rs.useLightmap ? 1 : 0);
         glUniform1f(s_shader.uAlphaRef, s_rs.alphaRef);
-        glUniform1f(s_shader.uInvGamma, 1.0 / s_rs.gamma);
+        glUniform1f(s_shader.uInvGamma, 1.0f / s_rs.gamma);
         glUniform4fv(s_shader.uLMTransform, 1, glm::value_ptr(s_rs.lmt));
         glUniform2fv(s_shader.uGlobalLM, 1, glm::value_ptr(s_rs.globalLM));
         s_gpu_state = s_rs;
+        s_gpu_state_valid = true;
         s_rs_dirty = false;
     }
     flushMatrices();
@@ -540,19 +552,19 @@ static GLenum mapPrim(int pt) {
     if (isQuadPrim(pt)) return GL_TRIANGLES;
     switch (pt) {
         case 0:
-            return GL_TRIANGLES;  // Engine TRIANGLE_LIST
+            return GL_TRIANGLES;
         case 1:
-            return GL_LINES;  // OpenGL GL_LINES
+            return GL_LINES;
         case 2:
-            return GL_TRIANGLE_FAN;  // Engine TRIANGLE_FAN
+            return GL_TRIANGLE_FAN;
         case 3:
-            return GL_LINE_STRIP;  // OpenGL GL_LINE_STRIP
+            return GL_LINE_STRIP;
         case 4:
-            return GL_TRIANGLES;  // OpenGL GL_TRIANGLES
+            return GL_TRIANGLES;
         case 5:
-            return GL_TRIANGLE_STRIP;  // OpenGL GL_TRIANGLE_STRIP
+            return GL_TRIANGLE_STRIP;
         case 6:
-            return GL_TRIANGLE_FAN;  // OpenGL GL_TRIANGLE_FAN
+            return GL_TRIANGLE_FAN;
         default:
             return GL_TRIANGLES;
     }
@@ -830,12 +842,15 @@ void C4JRender::DrawVertices(ePrimitiveType ptype, int count, void* dataIn,
         s_recDraws.push_back({glMode, first, (GLsizei)count});
         return;
     }
+
     pthread_mutex_lock(&s_glCallMtx);
     pushRenderState();
 
     glBindVertexArray(s_sVAO_std);
     glBindBuffer(GL_ARRAY_BUFFER, s_sVBO_std);
-    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)bytes, NULL, GL_STREAM_DRAW);
+
+    // was two back-to-back glBufferData calls
+    // first with NULL to "orphan" the buffer, then immediately with real data
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)bytes, dataIn, GL_STREAM_DRAW);
     bindStdAttribs();
 
@@ -977,11 +992,14 @@ const float* C4JRender::MatrixGet(int t) {
     if (m) memcpy(buf, glm::value_ptr(*m), 64);
     return buf;
 }
+
 void C4JRender::Set_matrixDirty() {
     // iggy wipes opengl state
-    s_rs_dirty = false;  // oopies
+    s_boundProgram = 0;
+    s_gpu_state_valid = false;
     if (s_shader.prog) {
         glUseProgram(s_shader.prog);
+        s_boundProgram = s_shader.prog;
     }
 }
 
@@ -1031,7 +1049,6 @@ void C4JRender::StateSetDepthTestEnable(bool e) {
     else
         glDisable(GL_DEPTH_TEST);
 }
-
 void C4JRender::StateSetAlphaTestEnable(bool e) {
     s_rs.alphaRef = e ? 0.1f : 0.f;
 }
@@ -1040,8 +1057,9 @@ void C4JRender::StateSetDepthSlopeAndBias(float s, float b) {
     if (s || b) {
         glEnable(GL_POLYGON_OFFSET_FILL);
         glPolygonOffset(s, b);
-    } else
+    } else {
         glDisable(GL_POLYGON_OFFSET_FILL);
+    }
 }
 void C4JRender::StateSetBlendFactor(unsigned int col) {
     float a = ((col >> 24) & 0xFF) / 255.f;
@@ -1082,27 +1100,24 @@ void C4JRender::StateSetLightDirection(int light, float x, float y, float z) {
     else
         s_rs.l1 = d;
 }
-
 void C4JRender::StateSetViewport(eViewportType) {
     glViewport(0, 0, s_windowWidth, s_windowHeight);
 }
-
 void C4JRender::StateSetVertexTextureUV(float u, float v) {
     s_rs.globalLM = {u, v};
 }
-
 void C4JRender::StateSetStencil(int fn, uint8_t ref, uint8_t fmask,
                                 uint8_t wmask) {
     glEnable(GL_STENCIL_TEST);
     glStencilFunc(fn, ref, fmask);
     glStencilMask(wmask);
 }
-
 void C4JRender::StateSetTextureEnable(bool e) {
     if (s_rs.activeTexture == 0) {
         s_rs.useTexture = e;
         if (s_shader.prog) {
             glUseProgram(s_shader.prog);
+            s_boundProgram = s_shader.prog;
             glUniform1i(s_shader.uUseTexture, e ? 1 : 0);
         }
     }
@@ -1143,12 +1158,11 @@ void C4JRender::TextureBindVertex(int idx, bool scaleLight) {
 }
 void C4JRender::TextureSetTextureLevels(int l) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, l > 0 ? l - 1 : 0);
-    if (l > 1) {
+    if (l > 1)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
                         GL_NEAREST_MIPMAP_LINEAR);
-    } else {
+    else
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    }
 }
 int C4JRender::TextureGetTextureLevels() { return 1; }
 void C4JRender::TextureData(int w, int h, void* d, int lvl, eTextureFormat) {
@@ -1206,8 +1220,7 @@ int C4JRender::LoadTextureData(uint8_t* pb, uint32_t nb, D3DXIMAGE_INFO* i,
 
 void C4JRender::UpdateGamma(unsigned short usGamma) {
     constexpr unsigned short GAMMA_MAX = 32768;
-
-    s_rs.gamma = 0.5 + ((float)(usGamma) * (1.0 / GAMMA_MAX));
+    s_rs.gamma = 0.5f + ((float)(usGamma) * (1.0f / GAMMA_MAX));
 }
 
 int glGenTextures_4J() {
@@ -1283,6 +1296,6 @@ void glLightModelfv(GLenum pname, const GLfloat* params) {
                                                  params[2]);
 }
 void glShadeModel(GLenum) {}
-void glColorMaterial(GLenum face, GLenum mode) {}
-void glNormal3f(GLfloat nx, GLfloat ny, GLfloat nz) {}
+void glColorMaterial(GLenum, GLenum) {}
+void glNormal3f(GLfloat, GLfloat, GLfloat) {}
 }
