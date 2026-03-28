@@ -117,7 +117,7 @@ void main() {
     vec2 lm = (aLMraw.x <= -500) ? uGlobalLM : vec2(aLMraw);
     vUV1 = (lm / 256.0) * uLMTransform.xy + uLMTransform.zw;
 
-    bool sentinel = aColor.a == 0.0;
+    bool sentinel = (aColor == vec4(0.0));
     vec4 col = sentinel ? uBaseColor : aColor.abgr;
     if (uLighting == 1) {
         mat3 m3 = mat3(uMV);
