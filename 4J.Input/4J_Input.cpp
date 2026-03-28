@@ -590,7 +590,10 @@ EKeyboardResult C_4JInput::RequestKeyboard(const wchar_t*, const wchar_t*, int,
                                            C_4JInput::EKeyboardMode) {
     return EKeyboard_Cancelled;
 }
-
+bool C_4JInput::GetMenuDisplayed(int iPad) {
+    if (iPad >= 0 && iPad < 4) return s_menuDisplayed[iPad];
+    return false;
+}
 void C_4JInput::GetText(uint16_t* s) {
     if (s) s[0] = 0;
 }
