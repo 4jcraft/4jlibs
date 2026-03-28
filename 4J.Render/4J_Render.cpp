@@ -120,7 +120,6 @@ void main() {
     bool sentinel = (aColor == vec4(0.0));
     vec4 col = sentinel ? uBaseColor : aColor.abgr;
     if (uLighting == 1) {
-        mat3 m3 = mat3(uMV);
         vec3 n = normalize(uNormalMatrix * aNormal) * uNormalSign;
 
         float d0 = max(dot(n, uLight0Dir), 0.0);
@@ -148,7 +147,7 @@ uniform int   uUseLightmap;
 uniform float uAlphaRef;
 uniform vec4  uFogColor;
 uniform int   uFogEnable;
-uniform float uGamma;
+uniform float uInvGamma;
 
 in  vec2  vUV0;
 in  vec2  vUV1;
@@ -159,11 +158,11 @@ out vec4  oColor;
 void main() {
     vec4 texColor = (uUseTexture != 0) ? texture(uTex0, vUV0) : vec4(1.0);
     vec4 c = texColor * vColor;
-    if (uUseLightmap != 0) c.rgb *= texture(uTex1, vUV1).rgb;
     if (c.a < uAlphaRef) discard;
+    if (uUseLightmap != 0) c.rgb *= texture(uTex1, vUV1).rgb;
     if (uFogEnable != 0) c.rgb = mix(uFogColor.rgb, c.rgb, vFogFactor);
 
-    c.rgb = pow(c.rgb, vec3(1.0 / uGamma));
+    c.rgb = pow(c.rgb, vec3(uInvGamma));
 
     oColor = c;
 }
@@ -215,7 +214,7 @@ struct ShaderUniforms {
     GLint uLMTransform = -1, uUseLightmap = -1, uAlphaRef = -1;
     GLint uTex0 = -1, uTex1 = -1, uGlobalLM = -1;
     GLint uUseTexture = -1;
-    GLint uGamma = -1;
+    GLint uInvGamma = -1;
 
     void build(const char* vs, const char* fs) {
         GLuint v = compileShader(GL_VERTEX_SHADER, vs);
@@ -247,7 +246,7 @@ struct ShaderUniforms {
         L(uTex1);
         L(uGlobalLM);
         L(uUseTexture);
-        L(uGamma);
+        L(uInvGamma);
 #undef L
         glUseProgram(prog);
         glUniform1i(uTex0, 0);
@@ -344,7 +343,7 @@ static void pushRenderState() {
         glUniform1i(s_shader.uUseTexture, s_rs.useTexture ? 1 : 0);
         glUniform1i(s_shader.uUseLightmap, s_rs.useLightmap ? 1 : 0);
         glUniform1f(s_shader.uAlphaRef, s_rs.alphaRef);
-        glUniform1f(s_shader.uGamma, s_rs.gamma);
+        glUniform1f(s_shader.uInvGamma, 1.0 / s_rs.gamma);
         glUniform4fv(s_shader.uLMTransform, 1, glm::value_ptr(s_rs.lmt));
         glUniform2fv(s_shader.uGlobalLM, 1, glm::value_ptr(s_rs.globalLM));
     }
