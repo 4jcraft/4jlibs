@@ -44,39 +44,72 @@
 
 C4JRender RenderManager;
 
-// Hello SDL and opengl 3.3
-static SDL_Window* s_window = nullptr;
-static SDL_GLContext s_glContext = nullptr;
-static bool s_shouldClose = false;
-static int s_windowWidth = 1920;
-static int s_windowHeight = 1080;
-static int s_reqWidth = 1920;
-static int s_reqHeight = 1080;
-static bool s_fullscreen = false;
-
-static pthread_key_t s_glCtxKey;
-static pthread_once_t s_glCtxKeyOnce = PTHREAD_ONCE_INIT;
-static void makeGLCtxKey() { pthread_key_create(&s_glCtxKey, nullptr); }
-static const int MAX_SHARED_CTXS = 6;
-static SDL_Window* s_sharedWins[MAX_SHARED_CTXS] = {};
-static SDL_GLContext s_sharedCtxs[MAX_SHARED_CTXS] = {};
-static int s_sharedCtxCount = 0;
-static int s_nextSharedCtx = 0;
-static pthread_mutex_t s_sharedMtx = PTHREAD_MUTEX_INITIALIZER;
-static pthread_mutex_t s_glCallMtx = PTHREAD_MUTEX_INITIALIZER;
-static pthread_t s_mainThread;
-static bool s_mainThreadSet = false;
-static thread_local bool s_rs_dirty = true;
-
-static void onFramebufferResize(int w, int h) {
-    if (w < 1) w = 1;
-    if (h < 1) h = 1;
-    s_windowWidth = w;
-    s_windowHeight = h;
-    glViewport(0, 0, w, h);
-}
-
 // Vertex shader source
+#ifdef GLES
+static const char* VERT_SRC = R"GLSL(
+#version 300 es
+precision highp float;
+precision highp int;
+
+layout(location=0) in vec3  aPos;
+layout(location=1) in vec2  aUV0;
+layout(location=2) in vec4  aColor;
+layout(location=3) in vec3  aNormal;
+layout(location=4) in ivec2 aLMraw;
+
+uniform mat4  uMVP;
+uniform mat4  uMV;
+uniform mat3  uNormalMatrix;
+uniform float uNormalSign;
+uniform mat4  uTexMat0;
+uniform vec4  uBaseColor;
+uniform int   uLighting;
+uniform vec3  uLight0Dir;
+uniform vec3  uLight1Dir;
+uniform vec3  uLightDiffuse;
+uniform vec3  uLightAmbient;
+uniform vec3  uChunkOffset;
+uniform int   uFogMode;
+uniform float uFogStart;
+uniform float uFogEnd;
+uniform float uFogDensity;
+uniform vec4  uLMTransform;
+uniform vec2  uGlobalLM;
+
+out vec2  vUV0;
+out vec2  vUV1;
+out vec4  vColor;
+out float vFogFactor;
+
+void main() {
+    vec4 aPos4   = vec4(aPos + uChunkOffset, 1.0);
+    vec4 eyePos  = uMV  * aPos4;
+    gl_Position  = uMVP * aPos4;
+    vUV0 = (uTexMat0 * vec4(aUV0, 0.0, 1.0)).xy; 
+
+    vec2 lm = (aLMraw.x <= -500) ? uGlobalLM : vec2(aLMraw);
+    vUV1 = (lm / 256.0) * uLMTransform.xy + uLMTransform.zw;
+
+    bool sentinel = all(equal(aColor, vec4(0.0)));
+    vec4 col = sentinel ? uBaseColor : aColor.abgr;
+    if (uLighting == 1) {
+        vec3 n = normalize(uNormalMatrix * aNormal) * uNormalSign;
+
+        float d0 = max(dot(n, uLight0Dir), 0.0);
+        float d1 = max(dot(n, uLight1Dir), 0.0);
+        vColor = vec4(col.rgb * (uLightAmbient + uLightDiffuse * (d0 + d1)), col.a);
+    } else {
+        vColor = col;
+    }
+
+    float eDist = length(eyePos.xyz);
+    if      (uFogMode == 1) vFogFactor = clamp((uFogEnd - eDist) / max(uFogEnd - uFogStart, 1e-4), 0.0, 1.0);
+    else if (uFogMode == 2) vFogFactor = clamp(exp(-uFogDensity * eDist), 0.0, 1.0);
+    else if (uFogMode == 3) { float d = uFogDensity * eDist; vFogFactor = clamp(exp(-d*d), 0.0, 1.0); }
+    else                    vFogFactor = 1.0;
+}
+)GLSL";
+#else
 static const char* VERT_SRC = R"GLSL(
 #version 330 core
 layout(location=0) in vec3  aPos;
@@ -137,8 +170,43 @@ void main() {
     else                    vFogFactor = 1.0;
 }
 )GLSL";
+#endif
 
 // Fragment shader source
+#ifdef GLES
+static const char* FRAG_SRC = R"GLSL(
+#version 300 es
+precision mediump float;
+precision mediump int;
+
+uniform sampler2D uTex0;
+uniform sampler2D uTex1;
+uniform int   uUseTexture;
+uniform int   uUseLightmap;
+uniform float uAlphaRef;
+uniform vec4  uFogColor;
+uniform int   uFogEnable;
+uniform float uInvGamma;
+
+in  vec2  vUV0;
+in  vec2  vUV1;
+in  vec4  vColor;
+in  float vFogFactor;
+out vec4  oColor;
+
+void main() {
+    vec4 texColor = (uUseTexture != 0) ? texture(uTex0, vUV0) : vec4(1.0);
+    vec4 c = texColor * vColor;
+    if (c.a < uAlphaRef) discard;
+    if (uUseLightmap != 0) c.rgb *= texture(uTex1, vUV1).rgb;
+    if (uFogEnable != 0) c.rgb = mix(uFogColor.rgb, c.rgb, vFogFactor);
+
+    c.rgb = pow(c.rgb, vec3(uInvGamma));
+
+    oColor = c;
+}
+)GLSL";
+#else
 static const char* FRAG_SRC = R"GLSL(
 #version 330 core
 uniform sampler2D uTex0;
@@ -168,6 +236,39 @@ void main() {
     oColor = c;
 }
 )GLSL";
+#endif
+
+// Hello SDL and opengl 3.3
+static SDL_Window* s_window = nullptr;
+static SDL_GLContext s_glContext = nullptr;
+static bool s_shouldClose = false;
+static int s_windowWidth = 1920;
+static int s_windowHeight = 1080;
+static int s_reqWidth = 1920;
+static int s_reqHeight = 1080;
+static bool s_fullscreen = false;
+
+static pthread_key_t s_glCtxKey;
+static pthread_once_t s_glCtxKeyOnce = PTHREAD_ONCE_INIT;
+static void makeGLCtxKey() { pthread_key_create(&s_glCtxKey, nullptr); }
+static const int MAX_SHARED_CTXS = 6;
+static SDL_Window* s_sharedWins[MAX_SHARED_CTXS] = {};
+static SDL_GLContext s_sharedCtxs[MAX_SHARED_CTXS] = {};
+static int s_sharedCtxCount = 0;
+static int s_nextSharedCtx = 0;
+static pthread_mutex_t s_sharedMtx = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t s_glCallMtx = PTHREAD_MUTEX_INITIALIZER;
+static pthread_t s_mainThread;
+static bool s_mainThreadSet = false;
+static thread_local bool s_rs_dirty = true;
+
+static void onFramebufferResize(int w, int h) {
+    if (w < 1) w = 1;
+    if (h < 1) h = 1;
+    s_windowWidth = w;
+    s_windowHeight = h;
+    glViewport(0, 0, w, h);
+}
 
 static GLuint compileShader(GLenum type, const char* src) {
     GLuint s = glCreateShader(type);
@@ -307,6 +408,7 @@ static void flushMatrices() {
         glUniform1f(s_shader.uNormalSign, glm::determinant(m3) < 0.0 ? -1 : 1);
     }
 }
+
 // Render state
 struct RS {
     glm::vec4 baseColor = {1, 1, 1, 1};
@@ -324,13 +426,28 @@ struct RS {
     glm::vec4 lmt = {1, 1, 0, 0};
     glm::vec2 globalLM = {240.f, 240.f};  // fullbright default
     int activeTexture = 0;
+    // we MAKE sure everything is FINE.
+    bool operator!=(const RS& o) const {
+        return baseColor != o.baseColor || fogColor != o.fogColor ||
+               fogStart != o.fogStart || fogEnd != o.fogEnd ||
+               fogDensity != o.fogDensity || fogMode != o.fogMode ||
+               fogEnable != o.fogEnable || alphaRef != o.alphaRef ||
+               gamma != o.gamma || useTexture != o.useTexture ||
+               useLightmap != o.useLightmap || lighting != o.lighting ||
+               l0 != o.l0 || l1 != o.l1 || ldiff != o.ldiff || lamb != o.lamb ||
+               lmt != o.lmt || globalLM != o.globalLM ||
+               activeTexture != o.activeTexture;
+    }
 };
+
 static thread_local RS s_rs;
+static RS s_gpu_state;
+static bool s_gpu_state_valid = false;
 
 static void pushRenderState() {
     if (!s_shader.prog) return;
     glUseProgram(s_shader.prog);
-    if (s_rs_dirty) {
+    if (!s_gpu_state_valid || s_gpu_state != s_rs) {
         glUniform4fv(s_shader.uBaseColor, 1, glm::value_ptr(s_rs.baseColor));
         glUniform1i(s_shader.uLighting, s_rs.lighting ? 1 : 0);
         glUniform3fv(s_shader.uLight0Dir, 1, glm::value_ptr(s_rs.l0));
@@ -349,6 +466,8 @@ static void pushRenderState() {
         glUniform1f(s_shader.uInvGamma, 1.0 / s_rs.gamma);
         glUniform4fv(s_shader.uLMTransform, 1, glm::value_ptr(s_rs.lmt));
         glUniform2fv(s_shader.uGlobalLM, 1, glm::value_ptr(s_rs.globalLM));
+        s_gpu_state = s_rs;
+        s_rs_dirty = false;
     }
     flushMatrices();
 }
@@ -454,10 +573,16 @@ void C4JRender::Initialise() {
         s_windowWidth = (int)(dm.w * 0.4f);
         s_windowHeight = (int)(dm.h * 0.4f);
     }
+#ifdef GLES
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+#else
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
                         SDL_GL_CONTEXT_PROFILE_CORE);
+#endif
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
@@ -475,7 +600,9 @@ void C4JRender::Initialise() {
         fprintf(stderr, "[4J_Render] Context: %s\n", SDL_GetError());
         return;
     }
+#ifndef GLES
     gl3_load();
+#endif
 #ifdef ENABLE_VSYNC
     SDL_GL_SetSwapInterval(1);
 #else
@@ -486,7 +613,11 @@ void C4JRender::Initialise() {
     onFramebufferResize(fw, fh);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
+#ifdef GLES
+    glClearDepthf(1.0f);
+#else
     glClearDepth(1.0);
+#endif
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_CULL_FACE);
@@ -849,8 +980,7 @@ const float* C4JRender::MatrixGet(int t) {
 }
 void C4JRender::Set_matrixDirty() {
     // iggy wipes opengl state
-    s_rs_dirty = true;
-
+    s_rs_dirty = false;  // oopies
     if (s_shader.prog) {
         glUseProgram(s_shader.prog);
     }
@@ -886,7 +1016,13 @@ void C4JRender::StateSetFaceCull(bool e) {
         glDisable(GL_CULL_FACE);
 }
 void C4JRender::StateSetFaceCullCW(bool e) { glFrontFace(e ? GL_CW : GL_CCW); }
-void C4JRender::StateSetLineWidth(float w) { glLineWidth(w); }
+void C4JRender::StateSetLineWidth(float w) {
+#ifndef GLES
+    glLineWidth(w);
+#else
+    (void)w;
+#endif
+}
 void C4JRender::StateSetWriteEnable(bool r, bool g, bool b, bool a) {
     glColorMask(r, g, b, a);
 }
@@ -1120,20 +1256,29 @@ void glDeleteTextures_4J(int n, const unsigned int* textures) {
 }
 
 void glGenQueries_4J_Helper(unsigned int* id) {
+#ifdef GLES
+    glGenQueries(1, id);
+#else
     typedef void (*PFNGLGENQUERIESPROC)(int n, unsigned int* ids);
     static PFNGLGENQUERIESPROC fn =
         (PFNGLGENQUERIESPROC)dlsym(RTLD_DEFAULT, "glGenQueries");
     if (fn) fn(1, id);
+#endif
 }
 
 void glGetQueryObjectu_4J_Helper(unsigned int id, unsigned int pname,
                                  unsigned int* val) {
+#ifdef GLES
+    glGetQueryObjectuiv(id, pname, val);
+#else
     typedef void (*PFNGLGETQUERYOBJECTUIVPROC)(
         unsigned int id, unsigned int pname, unsigned int* params);
     static PFNGLGETQUERYOBJECTUIVPROC fn =
         (PFNGLGETQUERYOBJECTUIVPROC)dlsym(RTLD_DEFAULT, "glGetQueryObjectuiv");
     if (fn) fn(id, pname, val);
+#endif
 }
+
 // c hooks
 #undef glFogfv
 #undef glLightfv
