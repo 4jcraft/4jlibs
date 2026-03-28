@@ -1,6 +1,7 @@
 # isolate em
 _sdl2 = dependency('sdl2')
 _threads = dependency('threads')
+_glm = dependency('glm')
 _defs = []
 
 if get_option('gles')
@@ -20,7 +21,7 @@ lib_render = static_library(
   '4J_Render',
   render_sources,
   include_directories: include_directories('.'),
-  dependencies: [_sdl2, _gl, _threads],
+  dependencies: [_sdl2, _gl, _threads, _glm],
   cpp_args: _defs
   + [
     '-fpermissive',
