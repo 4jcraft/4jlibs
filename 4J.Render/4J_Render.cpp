@@ -1,3 +1,9 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#include <GL/glext.h>
+#include <glm/matrix.hpp>
+#endif
+
 #include "gl3_loader.h"
 #include "4J_Render.h"
 
@@ -28,6 +34,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <cstdio>
+#include <cmath>
 #include <cassert>
 #include <unordered_map>
 #include <vector>
@@ -383,6 +390,12 @@ struct MatrixStack {
 static thread_local MatrixStack s_proj, s_mv, s_tex[2];
 static thread_local int s_matMode = 0;  // 0=MV 1=proj 2=tex0 3=tex1
 
+// cache normal matrix
+static thread_local bool s_normalMatDirty = true;
+static thread_local glm::mat3 s_cachedNormalMat;
+static thread_local float s_cachedNormalSign = 1.0f;
+static inline void markNormalDirty() { s_normalMatDirty = true; }
+
 static MatrixStack& activeStack() {
     switch (s_matMode) {
         case 1:
@@ -406,11 +419,15 @@ static void flushMatrices() {
 
     // if (s_shader.uLighting)
     if (s_shader.uNormalMatrix >= 0) {
-        auto m3 = glm::mat3(s_mv.cur());
+        if (s_normalMatDirty) {
+            glm::mat3 m3 = glm::mat3(s_mv.cur());
+            s_cachedNormalMat = glm::transpose(glm::inverse(m3));
+            s_cachedNormalSign = glm::determinant(m3) < 0.0f ? -1.0f : 1.0f;
+            s_normalMatDirty = false;
+        }
         glUniformMatrix3fv(s_shader.uNormalMatrix, 1, GL_FALSE,
-                           glm::value_ptr(glm::transpose(glm::inverse(m3))));
-        glUniform1f(s_shader.uNormalSign,
-                    glm::determinant(m3) < 0.0f ? -1.0f : 1.0f);
+                           glm::value_ptr(s_cachedNormalMat));
+        glUniform1f(s_shader.uNormalSign, s_cachedNormalSign);
     }
 }
 
@@ -507,7 +524,6 @@ static void initStreamingVAOs() {
     glGenBuffers(1, &s_sVBO_std);
     glBindVertexArray(s_sVAO_std);
     glBindBuffer(GL_ARRAY_BUFFER, s_sVBO_std);
-
     bindStdAttribs();
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -522,6 +538,8 @@ struct ChunkDrawCall {
 
 struct ChunkBuffer {
     GLuint vbo = 0;
+    // each chunks has its one VAO now
+    GLuint vao = 0;
     std::vector<ChunkDrawCall> draws;
     std::vector<uint8_t> rawVerts;
     bool valid = false;
@@ -530,6 +548,10 @@ struct ChunkBuffer {
         if (vbo) {
             glDeleteBuffers(1, &vbo);
             vbo = 0;
+        }
+        if (vao) {
+            glDeleteVertexArrays(1, &vao);
+            vao = 0;
         }
         draws.clear();
         rawVerts.clear();
@@ -768,8 +790,11 @@ void C4JRender::DrawVertices(ePrimitiveType ptype, int count, void* dataIn,
 
     bool wasQuad = isQuadPrim((int)ptype);
     GLenum glMode = mapPrim((int)ptype);
+    static thread_local std::vector<uint8_t> stdData;
+    static thread_local std::vector<uint8_t> triData;
+    stdData.clear();
+    triData.clear();
 
-    std::vector<uint8_t> stdData;
     if (vType == VERTEX_TYPE_COMPRESSED) {
         stdData.resize((size_t)count * 32);
         const int16_t* src = (const int16_t*)dataIn;
@@ -813,7 +838,6 @@ void C4JRender::DrawVertices(ePrimitiveType ptype, int count, void* dataIn,
     }
 
     static const size_t stride = 32;
-    std::vector<uint8_t> triData;
     if (wasQuad) {
         int numQuads = count / 4;
         int triVerts = numQuads * 6;
@@ -856,8 +880,8 @@ void C4JRender::DrawVertices(ePrimitiveType ptype, int count, void* dataIn,
     glBindVertexArray(s_sVAO_std);
     glBindBuffer(GL_ARRAY_BUFFER, s_sVBO_std);
 
-    // was two back-to-back glBufferData calls
-    // first with NULL to "orphan" the buffer, then immediately with real data
+    // orphan buffer
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)bytes, nullptr, GL_STREAM_DRAW);
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)bytes, dataIn, GL_STREAM_DRAW);
     bindStdAttribs();
 
@@ -940,24 +964,28 @@ bool C4JRender::CBuffCall(int index, bool) {
             pthread_mutex_unlock(&s_glCallMtx);
             return false;
         }
+
+        glGenVertexArrays(1, &cb.vao);
         glGenBuffers(1, &cb.vbo);
+        glBindVertexArray(cb.vao);
         glBindBuffer(GL_ARRAY_BUFFER, cb.vbo);
         glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)cb.rawVerts.size(),
                      cb.rawVerts.data(), GL_STATIC_DRAW);
+        bindStdAttribs();  // single time bindstdattrib
+        glBindVertexArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+
         cb.rawVerts.clear();
         cb.rawVerts.shrink_to_fit();
         cb.vboReady = true;
     }
+
     pushRenderState();
 
-    glBindVertexArray(s_sVAO_std);
-    glBindBuffer(GL_ARRAY_BUFFER, cb.vbo);
-    bindStdAttribs();
-
+    glBindVertexArray(cb.vao);
     for (const auto& dc : cb.draws) glDrawArrays(dc.prim, dc.first, dc.count);
-
     glBindVertexArray(0);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
     pthread_mutex_unlock(&s_glCallMtx);
     return true;
 }
@@ -971,17 +999,31 @@ void C4JRender::MatrixMode(int t) {
         s_matMode = 0;
 }
 
-void C4JRender::MatrixSetIdentity() { activeStack().load(glm::mat4(1.f)); }
-void C4JRender::MatrixPush() { activeStack().push(); }
-void C4JRender::MatrixPop() { activeStack().pop(); }
+void C4JRender::MatrixSetIdentity() {
+    activeStack().load(glm::mat4(1.f));
+    if (s_matMode == 0) markNormalDirty();
+}
+void C4JRender::MatrixPush() {
+    activeStack().push();
+    // push doesn't change cur() so no dirty needed but mark anyway to be safe
+    // ;w;
+    if (s_matMode == 0) markNormalDirty();
+}
+void C4JRender::MatrixPop() {
+    activeStack().pop();
+    if (s_matMode == 0) markNormalDirty();
+}
 void C4JRender::MatrixTranslate(float x, float y, float z) {
     activeStack().mul(glm::translate(glm::mat4(1.f), {x, y, z}));
+    if (s_matMode == 0) markNormalDirty();
 }
 void C4JRender::MatrixRotate(float a, float x, float y, float z) {
     activeStack().mul(glm::rotate(glm::mat4(1.f), a, {x, y, z}));
+    if (s_matMode == 0) markNormalDirty();
 }
 void C4JRender::MatrixScale(float x, float y, float z) {
     activeStack().mul(glm::scale(glm::mat4(1.f), {x, y, z}));
+    if (s_matMode == 0) markNormalDirty();
 }
 void C4JRender::MatrixPerspective(float fovy, float asp, float zn, float zf) {
     s_proj.cur() = glm::perspective(glm::radians(fovy), asp, zn, zf);
@@ -990,7 +1032,10 @@ void C4JRender::MatrixOrthogonal(float l, float r, float b, float t, float zn,
                                  float zf) {
     s_proj.cur() = glm::ortho(l, r, b, t, zn, zf);
 }
-void C4JRender::MatrixMult(float* m) { activeStack().mul(glm::make_mat4(m)); }
+void C4JRender::MatrixMult(float* m) {
+    activeStack().mul(glm::make_mat4(m));
+    if (s_matMode == 0) markNormalDirty();
+}
 const float* C4JRender::MatrixGet(int t) {
     static float buf[16];
     glm::mat4* m = (t == GL_MODELVIEW_MATRIX)    ? &s_mv.cur()
@@ -1004,6 +1049,7 @@ void C4JRender::Set_matrixDirty() {
     // iggy wipes opengl state
     s_boundProgram = 0;
     s_gpu_state_valid = false;
+    s_normalMatDirty = true;  // normal matrix dirt after iggy reset
     if (s_shader.prog) {
         glUseProgram(s_shader.prog);
         s_boundProgram = s_shader.prog;
