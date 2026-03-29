@@ -41,19 +41,19 @@ C4JRender RenderManager;
 #define CPP_GLSL_INCLUDE
 
 #ifdef GLES
-static const char* VERT_SRC = 
+static const char* VERT_SRC =
 #include "shaders/vertex_es.vert"
-;
-static const char* FRAG_SRC = 
+    ;
+static const char* FRAG_SRC =
 #include "shaders/fragment_es.frag"
-;
+    ;
 #else
-static const char* VERT_SRC = 
+static const char* VERT_SRC =
 #include "shaders/vertex.vert"
-;
-static const char* FRAG_SRC = 
+    ;
+static const char* FRAG_SRC =
 #include "shaders/fragment.frag"
-;
+    ;
 #endif
 
 #undef CPP_GLSL_INCLUDE
@@ -1114,11 +1114,25 @@ void glDeleteTextures_4J(int n, const unsigned int* textures) {
     ::glDeleteTextures(n, textures);
 }
 
+void glBeginQuery_4J_Helper(unsigned int target, unsigned int id) {
+    typedef void (*PFNGLBEGINQUERYPROC)(unsigned int, unsigned int);
+    static PFNGLBEGINQUERYPROC fn =
+        (PFNGLBEGINQUERYPROC)dlsym(RTLD_DEFAULT, "glBeginQuery");
+    if (fn) fn(target, id);
+}
+
+void glEndQuery_4J_Helper(unsigned int target) {
+    typedef void (*PFNGLENDQUERYPROC)(unsigned int);
+    static PFNGLENDQUERYPROC fn =
+        (PFNGLENDQUERYPROC)dlsym(RTLD_DEFAULT, "glEndQuery");
+    if (fn) fn(target);
+}
+
 void glGenQueries_4J_Helper(unsigned int* id) {
 #ifdef GLES
     glGenQueries(1, id);
 #else
-    typedef void (*PFNGLGENQUERIESPROC)(int n, unsigned int* ids);
+    typedef void (*PFNGLGENQUERIESPROC)(int, unsigned int*);
     static PFNGLGENQUERIESPROC fn =
         (PFNGLGENQUERIESPROC)dlsym(RTLD_DEFAULT, "glGenQueries");
     if (fn) fn(1, id);
@@ -1130,8 +1144,8 @@ void glGetQueryObjectu_4J_Helper(unsigned int id, unsigned int pname,
 #ifdef GLES
     glGetQueryObjectuiv(id, pname, val);
 #else
-    typedef void (*PFNGLGETQUERYOBJECTUIVPROC)(
-        unsigned int id, unsigned int pname, unsigned int* params);
+    typedef void (*PFNGLGETQUERYOBJECTUIVPROC)(unsigned int, unsigned int,
+                                               unsigned int*);
     static PFNGLGETQUERYOBJECTUIVPROC fn =
         (PFNGLGETQUERYOBJECTUIVPROC)dlsym(RTLD_DEFAULT, "glGetQueryObjectuiv");
     if (fn) fn(id, pname, val);
