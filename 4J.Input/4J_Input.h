@@ -122,7 +122,7 @@ public:
                                     void* lpParam,
                                     C_4JInput::EKeyboardMode eMode);
     bool GetMenuDisplayed(int);
-    void GetText(uint16_t* UTF16String);
+    const char* GetText();
 
     // Online check strings against offensive list - TCR 92
     // 	TCR # 092  CMTV Player Text String Verification

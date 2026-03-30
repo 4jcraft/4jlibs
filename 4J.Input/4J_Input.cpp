@@ -4,6 +4,7 @@
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
+#include <string>
 
 C_4JInput InputManager;
 
@@ -33,6 +34,12 @@ static int s_scrollTicksForButtonPressed = 0;
 static int s_scrollTicksForGetValue = 0;
 static int s_scrollTicksSnap = 0;
 static bool s_scrollSnapTaken = false;
+
+// Text input state (non-blocking keyboard)
+static bool s_keyboardActive = false;
+static std::string s_textInputBuf;
+static int (*s_keyboardCallback)(void*, const bool) = nullptr;
+static void* s_keyboardCallbackParam = nullptr;
 
 // We set all the watched keys
 // I don't know if I'll need to change this if we add chat support soon.
@@ -159,6 +166,8 @@ static int SDLCALL EventWatcher(void*, SDL_Event* e) {
     } else if (e->type == SDL_MOUSEMOTION) {
         s_accumRelX += (float)e->motion.xrel;
         s_accumRelY += (float)e->motion.yrel;
+    } else if (e->type == SDL_TEXTINPUT && s_keyboardActive) {
+        s_textInputBuf += e->text.text;
     } else if (e->type == SDL_CONTROLLERDEVICEADDED) {  // Will search for
                                                         // controller if none
         for (int i = 0; i < SDL_NumJoysticks(); i++) {
@@ -247,6 +256,15 @@ void C_4JInput::Initialise(int, unsigned char, unsigned char, unsigned char) {
         }
     }
 }
+// Erase one UTF-8 codepoint from the end of a string.
+static void utf8_pop_back(std::string& str) {
+    if (str.empty()) return;
+    size_t i = str.size() - 1;
+    while (i > 0 && (str[i] & 0xC0) == 0x80) --i;
+    str.erase(i);
+}
+
+
 // Each tick we update the input state by polling SDL, this is where we get the
 // kbd and mouse state.
 void C_4JInput::Tick() {
@@ -311,6 +329,31 @@ void C_4JInput::Tick() {
                     s_axisCurrent[ca] = (aVal > deadZone || aVal < -deadZone);
                     axisVal[ca] = aVal / 32768.0f;
                 }
+            }
+        }
+    }
+
+    // Handle non-blocking keyboard input completion
+    if (s_keyboardActive) {
+        if (KPressed(SDL_SCANCODE_BACKSPACE)) {
+            utf8_pop_back(s_textInputBuf);
+        }
+        if (KPressed(SDL_SCANCODE_RETURN) || KPressed(SDL_SCANCODE_KP_ENTER)) {
+            s_keyboardActive = false;
+            SDL_StopTextInput();
+            if (s_keyboardCallback) {
+                s_keyboardCallback(s_keyboardCallbackParam, true);
+                s_keyboardCallback = nullptr;
+                s_keyboardCallbackParam = nullptr;
+            }
+        } else if (KPressed(SDL_SCANCODE_ESCAPE)) {
+            s_keyboardActive = false;
+            s_textInputBuf.clear();
+            SDL_StopTextInput();
+            if (s_keyboardCallback) {
+                s_keyboardCallback(s_keyboardCallbackParam, false);
+                s_keyboardCallback = nullptr;
+                s_keyboardCallbackParam = nullptr;
             }
         }
     }
@@ -583,19 +626,24 @@ void C_4JInput::SetDebugSequence(const char*, int (*)(void*), void*) {}
 float C_4JInput::GetIdleSeconds(int) { return 0.f; }
 bool C_4JInput::IsPadConnected(int iPad) { return iPad == 0; }
 
-// Silly check, we check if we have a keyboard.
 EKeyboardResult C_4JInput::RequestKeyboard(const wchar_t*, const wchar_t*, int,
                                            unsigned int,
-                                           int (*)(void*, const bool), void*,
+                                           int (*callback)(void*, const bool),
+                                           void* scene,
                                            C_4JInput::EKeyboardMode) {
-    return EKeyboard_Cancelled;
+    s_keyboardActive = true;
+    s_textInputBuf.clear();
+    s_keyboardCallback = callback;
+    s_keyboardCallbackParam = scene;
+    SDL_StartTextInput();
+    return EKeyboard_Pending;
 }
 bool C_4JInput::GetMenuDisplayed(int iPad) {
     if (iPad >= 0 && iPad < 4) return s_menuDisplayed[iPad];
     return false;
 }
-void C_4JInput::GetText(uint16_t* s) {
-    if (s) s[0] = 0;
+const char* C_4JInput::GetText() {
+    return s_textInputBuf.c_str();
 }
 bool C_4JInput::VerifyStrings(wchar_t**, int,
                               int (*)(void*, STRING_VERIFY_RESPONSE*), void*) {
