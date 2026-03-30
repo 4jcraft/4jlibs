@@ -598,6 +598,64 @@ bool C_4JInput::GetMenuDisplayed(int iPad) {
     if (iPad >= 0 && iPad < 4) return s_menuDisplayed[iPad];
     return false;
 }
+// Erase one UTF-8 codepoint from the end of a string.
+static void utf8_pop_back(std::string& str) {
+    if (str.empty()) return;
+    size_t i = str.size() - 1;
+    // Walk back past continuation bytes (10xxxxxx).
+    while (i > 0 && (str[i] & 0xC0) == 0x80) --i;
+    str.erase(i);
+}
+
+// Decode one UTF-8 codepoint starting at src[i], advance i past it.
+// Returns the Unicode codepoint, or 0xFFFD on invalid input.
+static uint32_t utf8_decode(const std::string& src, size_t& i) {
+    auto u = [&](size_t pos) -> uint8_t { return (uint8_t)src[pos]; };
+    size_t remaining = src.size() - i;
+    uint32_t cp = 0xFFFD;
+
+    if ((u(i) & 0x80) == 0) {
+        cp = u(i);
+        i += 1;
+    } else if ((u(i) & 0xE0) == 0xC0 && remaining >= 2) {
+        cp = ((u(i) & 0x1F) << 6) | (u(i + 1) & 0x3F);
+        i += 2;
+    } else if ((u(i) & 0xF0) == 0xE0 && remaining >= 3) {
+        cp = ((u(i) & 0x0F) << 12) | ((u(i + 1) & 0x3F) << 6) |
+             (u(i + 2) & 0x3F);
+        i += 3;
+    } else if ((u(i) & 0xF8) == 0xF0 && remaining >= 4) {
+        cp = ((u(i) & 0x07) << 18) | ((u(i + 1) & 0x3F) << 12) |
+             ((u(i + 2) & 0x3F) << 6) | (u(i + 3) & 0x3F);
+        i += 4;
+    } else {
+        i += 1; // skip invalid byte
+    }
+    return cp;
+}
+
+// Convert a UTF-8 string to a uint16_t UTF-16 buffer.
+// Returns the number of uint16_t units written (excluding null terminator).
+static int utf8_to_utf16(const std::string& src, uint16_t* dst, int maxUnits) {
+    int out = 0;
+    size_t i = 0;
+    while (i < src.size() && out < maxUnits) {
+        uint32_t cp = utf8_decode(src, i);
+        if (cp <= 0xFFFF) {
+            dst[out++] = (uint16_t)cp;
+        } else if (cp <= 0x10FFFF && out + 1 < maxUnits) {
+            // Surrogate pair for supplementary plane characters.
+            cp -= 0x10000;
+            dst[out++] = (uint16_t)(0xD800 | (cp >> 10));
+            dst[out++] = (uint16_t)(0xDC00 | (cp & 0x3FF));
+        } else {
+            break; // no room for surrogate pair
+        }
+    }
+    dst[out] = 0;
+    return out;
+}
+
 void C_4JInput::GetText(uint16_t* s) {
     if (!s) return;
 
@@ -611,8 +669,8 @@ void C_4JInput::GetText(uint16_t* s) {
             if (e.type == SDL_TEXTINPUT) {
                 output += e.text.text;
             } else if (e.type == SDL_KEYDOWN) {
-                if (e.key.keysym.sym == SDLK_BACKSPACE && !output.empty()) {
-                    output.pop_back();
+                if (e.key.keysym.sym == SDLK_BACKSPACE) {
+                    utf8_pop_back(output);
                 } else if (e.key.keysym.sym == SDLK_RETURN ||
                            e.key.keysym.sym == SDLK_KP_ENTER ||
                            e.key.keysym.sym == SDLK_ESCAPE) {
@@ -624,14 +682,7 @@ void C_4JInput::GetText(uint16_t* s) {
     }
     SDL_StopTextInput();
 
-    int len = (int)output.length();
-    if (len > TEXT_INPUT_MAX_CHARS)
-        len = TEXT_INPUT_MAX_CHARS;
-
-    for (int i = 0; i < len; i++) {
-        s[i] = (uint16_t)(unsigned char)output[i];
-    }
-    s[len] = 0;
+    utf8_to_utf16(output, s, TEXT_INPUT_MAX_CHARS);
 }
 bool C_4JInput::VerifyStrings(wchar_t**, int,
                               int (*)(void*, STRING_VERIFY_RESPONSE*), void*) {
