@@ -4,6 +4,7 @@
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
+#include <string>
 
 C_4JInput InputManager;
 
@@ -11,6 +12,7 @@ static const int KEY_COUNT = SDL_NUM_SCANCODES;
 static const int BTN_COUNT = SDL_CONTROLLER_BUTTON_MAX;
 static const int AXS_COUNT = SDL_CONTROLLER_AXIS_MAX;
 static const float MOUSE_SCALE = 0.015f;
+static const int TEXT_INPUT_MAX_CHARS = 127;
 // Vars
 static bool s_sdlInitialized = false;
 static bool s_keysCurrent[KEY_COUNT] = {};
@@ -586,16 +588,50 @@ bool C_4JInput::IsPadConnected(int iPad) { return iPad == 0; }
 // Silly check, we check if we have a keyboard.
 EKeyboardResult C_4JInput::RequestKeyboard(const wchar_t*, const wchar_t*, int,
                                            unsigned int,
-                                           int (*)(void*, const bool), void*,
+                                           int (*callback)(void*, const bool),
+                                           void* scene,
                                            C_4JInput::EKeyboardMode) {
-    return EKeyboard_Cancelled;
+    callback(scene, true);
+    return EKeyboard_ResultAccept;
 }
 bool C_4JInput::GetMenuDisplayed(int iPad) {
     if (iPad >= 0 && iPad < 4) return s_menuDisplayed[iPad];
     return false;
 }
 void C_4JInput::GetText(uint16_t* s) {
-    if (s) s[0] = 0;
+    if (!s) return;
+
+    SDL_StartTextInput();
+    std::string output;
+    bool typing = true;
+
+    while (typing) {
+        SDL_Event e;
+        while (SDL_WaitEvent(&e)) {
+            if (e.type == SDL_TEXTINPUT) {
+                output += e.text.text;
+            } else if (e.type == SDL_KEYDOWN) {
+                if (e.key.keysym.sym == SDLK_BACKSPACE && !output.empty()) {
+                    output.pop_back();
+                } else if (e.key.keysym.sym == SDLK_RETURN ||
+                           e.key.keysym.sym == SDLK_KP_ENTER ||
+                           e.key.keysym.sym == SDLK_ESCAPE) {
+                    typing = false;
+                    break;
+                }
+            }
+        }
+    }
+    SDL_StopTextInput();
+
+    int len = (int)output.length();
+    if (len > TEXT_INPUT_MAX_CHARS)
+        len = TEXT_INPUT_MAX_CHARS;
+
+    for (int i = 0; i < len; i++) {
+        s[i] = (uint16_t)(unsigned char)output[i];
+    }
+    s[len] = 0;
 }
 bool C_4JInput::VerifyStrings(wchar_t**, int,
                               int (*)(void*, STRING_VERIFY_RESPONSE*), void*) {
