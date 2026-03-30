@@ -1,9 +1,12 @@
 #include "4J_Input.h"
 #include "../4J.Common/4J_InputActions.h"
+#include "SDL_keyboard.h"
+#include "SDL_keycode.h"
 #include <SDL2/SDL.h>
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
+#include <iostream>
 
 C_4JInput InputManager;
 
@@ -586,16 +589,50 @@ bool C_4JInput::IsPadConnected(int iPad) { return iPad == 0; }
 // Silly check, we check if we have a keyboard.
 EKeyboardResult C_4JInput::RequestKeyboard(const wchar_t*, const wchar_t*, int,
                                            unsigned int,
-                                           int (*)(void*, const bool), void*,
+                                           int (*callback)(void*, const bool), void* scene,
                                            C_4JInput::EKeyboardMode) {
-    return EKeyboard_Cancelled;
+    // return EKeyboard_Cancelled;
+    callback(scene, true);
+    return EKeyboard_ResultAccept;
 }
 bool C_4JInput::GetMenuDisplayed(int iPad) {
     if (iPad >= 0 && iPad < 4) return s_menuDisplayed[iPad];
     return false;
 }
 void C_4JInput::GetText(uint16_t* s) {
-    if (s) s[0] = 0;
+    // if (s) s[0] = 0;
+    // TODO so strings are being conveyed correctly now with the right types in the weird utf-16 encoding, maybe a dialog box with sdl will work for now for debugging
+    if (!s) return;
+    SDL_StartTextInput();
+    std::string output;
+    bool typing = true;
+    SDL_Event e;
+    SDL_PollEvent(&e);
+    while (typing) {
+        while (SDL_WaitEvent(&e)) {
+            if (e.type == SDL_TEXTINPUT) {
+                    output += e.text.text;
+            }
+
+            if (e.type == SDL_KEYDOWN) {
+                if (e.key.keysym.sym == SDLK_BACKSPACE && !output.empty()) {
+                    output.pop_back();
+                }
+                if (e.key.keysym.sym == SDLK_RETURN || e.key.keysym.sym == SDLK_KP_ENTER || e.key.keysym.sym == SDLK_ESCAPE) {
+                    typing = false;
+                    break;
+                }
+            }
+        }
+    }
+    SDL_StopTextInput();
+
+    // Copy to the buffer
+    int i;
+    for (i = 0; i < output.length(); i++) {
+        s[i] = (uint16_t)output[i];
+    }
+    s[++i] = 0;
 }
 bool C_4JInput::VerifyStrings(wchar_t**, int,
                               int (*)(void*, STRING_VERIFY_RESPONSE*), void*) {
