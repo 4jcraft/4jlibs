@@ -12,7 +12,6 @@ static const int KEY_COUNT = SDL_NUM_SCANCODES;
 static const int BTN_COUNT = SDL_CONTROLLER_BUTTON_MAX;
 static const int AXS_COUNT = SDL_CONTROLLER_AXIS_MAX;
 static const float MOUSE_SCALE = 0.015f;
-static const int TEXT_INPUT_MAX_CHARS = 127;
 // Vars
 static bool s_sdlInitialized = false;
 static bool s_keysCurrent[KEY_COUNT] = {};
@@ -265,51 +264,6 @@ static void utf8_pop_back(std::string& str) {
     str.erase(i);
 }
 
-// Decode one UTF-8 codepoint starting at src[i], advance i past it.
-static uint32_t utf8_decode(const std::string& src, size_t& i) {
-    auto u = [&](size_t pos) -> uint8_t { return (uint8_t)src[pos]; };
-    size_t remaining = src.size() - i;
-    uint32_t cp = 0xFFFD;
-
-    if ((u(i) & 0x80) == 0) {
-        cp = u(i);
-        i += 1;
-    } else if ((u(i) & 0xE0) == 0xC0 && remaining >= 2) {
-        cp = ((u(i) & 0x1F) << 6) | (u(i + 1) & 0x3F);
-        i += 2;
-    } else if ((u(i) & 0xF0) == 0xE0 && remaining >= 3) {
-        cp = ((u(i) & 0x0F) << 12) | ((u(i + 1) & 0x3F) << 6) |
-             (u(i + 2) & 0x3F);
-        i += 3;
-    } else if ((u(i) & 0xF8) == 0xF0 && remaining >= 4) {
-        cp = ((u(i) & 0x07) << 18) | ((u(i + 1) & 0x3F) << 12) |
-             ((u(i + 2) & 0x3F) << 6) | (u(i + 3) & 0x3F);
-        i += 4;
-    } else {
-        i += 1;
-    }
-    return cp;
-}
-
-// Convert a UTF-8 string to a uint16_t UTF-16 buffer.
-static int utf8_to_utf16(const std::string& src, uint16_t* dst, int maxUnits) {
-    int out = 0;
-    size_t i = 0;
-    while (i < src.size() && out < maxUnits) {
-        uint32_t cp = utf8_decode(src, i);
-        if (cp <= 0xFFFF) {
-            dst[out++] = (uint16_t)cp;
-        } else if (cp <= 0x10FFFF && out + 1 < maxUnits) {
-            cp -= 0x10000;
-            dst[out++] = (uint16_t)(0xD800 | (cp >> 10));
-            dst[out++] = (uint16_t)(0xDC00 | (cp & 0x3FF));
-        } else {
-            break;
-        }
-    }
-    dst[out] = 0;
-    return out;
-}
 
 // Each tick we update the input state by polling SDL, this is where we get the
 // kbd and mouse state.
@@ -688,9 +642,8 @@ bool C_4JInput::GetMenuDisplayed(int iPad) {
     if (iPad >= 0 && iPad < 4) return s_menuDisplayed[iPad];
     return false;
 }
-void C_4JInput::GetText(uint16_t* s) {
-    if (!s) return;
-    utf8_to_utf16(s_textInputBuf, s, TEXT_INPUT_MAX_CHARS);
+const char* C_4JInput::GetText() {
+    return s_textInputBuf.c_str();
 }
 bool C_4JInput::VerifyStrings(wchar_t**, int,
                               int (*)(void*, STRING_VERIFY_RESPONSE*), void*) {
