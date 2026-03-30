@@ -341,6 +341,9 @@ void C_4JInput::Tick() {
         if (KPressed(SDL_SCANCODE_RETURN) || KPressed(SDL_SCANCODE_KP_ENTER)) {
             s_keyboardActive = false;
             SDL_StopTextInput();
+            // Consume the key so it doesn't also trigger ACTION_MENU_OK
+            s_keysCurrent[SDL_SCANCODE_RETURN] = false;
+            s_keysCurrent[SDL_SCANCODE_KP_ENTER] = false;
             if (s_keyboardCallback) {
                 s_keyboardCallback(s_keyboardCallbackParam, true);
                 s_keyboardCallback = nullptr;
@@ -350,6 +353,8 @@ void C_4JInput::Tick() {
             s_keyboardActive = false;
             s_textInputBuf.clear();
             SDL_StopTextInput();
+            // Consume the key so it doesn't also trigger ACTION_MENU_CANCEL
+            s_keysCurrent[SDL_SCANCODE_ESCAPE] = false;
             if (s_keyboardCallback) {
                 s_keyboardCallback(s_keyboardCallbackParam, false);
                 s_keyboardCallback = nullptr;
@@ -447,6 +452,7 @@ int C_4JInput::GetHotbarSlotPressed(int iPad) {
 
 bool C_4JInput::ButtonDown(int iPad, unsigned char ucAction) {
     if (iPad != 0) return false;
+    if (s_keyboardActive) return false;
     if (ucAction == 255) {
         for (int i = 0; i < s_watchedKeyCount; ++i)
             if (s_keysCurrent[s_watchedKeys[i]]) return true;
@@ -476,6 +482,7 @@ bool C_4JInput::ButtonDown(int iPad, unsigned char ucAction) {
 // The part that handles completing the action of pressing a button.
 bool C_4JInput::ButtonPressed(int iPad, unsigned char ucAction) {
     if (iPad != 0 || ucAction == 255) return false;
+    if (s_keyboardActive) return false;
     switch (ucAction) {
         case MINECRAFT_ACTION_ACTION:
             return MouseLPressed() || KPressed(SDL_SCANCODE_RETURN) ||
@@ -501,6 +508,7 @@ bool C_4JInput::ButtonPressed(int iPad, unsigned char ucAction) {
 // The part that handles Releasing a button.
 bool C_4JInput::ButtonReleased(int iPad, unsigned char ucAction) {
     if (iPad != 0 || ucAction == 255) return false;
+    if (s_keyboardActive) return false;
     switch (ucAction) {
         case MINECRAFT_ACTION_ACTION:
             return MouseLReleased() || KReleased(SDL_SCANCODE_RETURN) ||
