@@ -36,6 +36,12 @@ static int s_scrollTicksForGetValue = 0;
 static int s_scrollTicksSnap = 0;
 static bool s_scrollSnapTaken = false;
 
+// Text input state (non-blocking keyboard)
+static bool s_keyboardActive = false;
+static std::string s_textInputBuf;
+static int (*s_keyboardCallback)(void*, const bool) = nullptr;
+static void* s_keyboardCallbackParam = nullptr;
+
 // We set all the watched keys
 // I don't know if I'll need to change this if we add chat support soon.
 static const int s_watchedKeys[] = {
@@ -161,6 +167,8 @@ static int SDLCALL EventWatcher(void*, SDL_Event* e) {
     } else if (e->type == SDL_MOUSEMOTION) {
         s_accumRelX += (float)e->motion.xrel;
         s_accumRelY += (float)e->motion.yrel;
+    } else if (e->type == SDL_TEXTINPUT && s_keyboardActive) {
+        s_textInputBuf += e->text.text;
     } else if (e->type == SDL_CONTROLLERDEVICEADDED) {  // Will search for
                                                         // controller if none
         for (int i = 0; i < SDL_NumJoysticks(); i++) {
@@ -249,6 +257,60 @@ void C_4JInput::Initialise(int, unsigned char, unsigned char, unsigned char) {
         }
     }
 }
+// Erase one UTF-8 codepoint from the end of a string.
+static void utf8_pop_back(std::string& str) {
+    if (str.empty()) return;
+    size_t i = str.size() - 1;
+    while (i > 0 && (str[i] & 0xC0) == 0x80) --i;
+    str.erase(i);
+}
+
+// Decode one UTF-8 codepoint starting at src[i], advance i past it.
+static uint32_t utf8_decode(const std::string& src, size_t& i) {
+    auto u = [&](size_t pos) -> uint8_t { return (uint8_t)src[pos]; };
+    size_t remaining = src.size() - i;
+    uint32_t cp = 0xFFFD;
+
+    if ((u(i) & 0x80) == 0) {
+        cp = u(i);
+        i += 1;
+    } else if ((u(i) & 0xE0) == 0xC0 && remaining >= 2) {
+        cp = ((u(i) & 0x1F) << 6) | (u(i + 1) & 0x3F);
+        i += 2;
+    } else if ((u(i) & 0xF0) == 0xE0 && remaining >= 3) {
+        cp = ((u(i) & 0x0F) << 12) | ((u(i + 1) & 0x3F) << 6) |
+             (u(i + 2) & 0x3F);
+        i += 3;
+    } else if ((u(i) & 0xF8) == 0xF0 && remaining >= 4) {
+        cp = ((u(i) & 0x07) << 18) | ((u(i + 1) & 0x3F) << 12) |
+             ((u(i + 2) & 0x3F) << 6) | (u(i + 3) & 0x3F);
+        i += 4;
+    } else {
+        i += 1;
+    }
+    return cp;
+}
+
+// Convert a UTF-8 string to a uint16_t UTF-16 buffer.
+static int utf8_to_utf16(const std::string& src, uint16_t* dst, int maxUnits) {
+    int out = 0;
+    size_t i = 0;
+    while (i < src.size() && out < maxUnits) {
+        uint32_t cp = utf8_decode(src, i);
+        if (cp <= 0xFFFF) {
+            dst[out++] = (uint16_t)cp;
+        } else if (cp <= 0x10FFFF && out + 1 < maxUnits) {
+            cp -= 0x10000;
+            dst[out++] = (uint16_t)(0xD800 | (cp >> 10));
+            dst[out++] = (uint16_t)(0xDC00 | (cp & 0x3FF));
+        } else {
+            break;
+        }
+    }
+    dst[out] = 0;
+    return out;
+}
+
 // Each tick we update the input state by polling SDL, this is where we get the
 // kbd and mouse state.
 void C_4JInput::Tick() {
@@ -313,6 +375,31 @@ void C_4JInput::Tick() {
                     s_axisCurrent[ca] = (aVal > deadZone || aVal < -deadZone);
                     axisVal[ca] = aVal / 32768.0f;
                 }
+            }
+        }
+    }
+
+    // Handle non-blocking keyboard input completion
+    if (s_keyboardActive) {
+        if (KPressed(SDL_SCANCODE_BACKSPACE)) {
+            utf8_pop_back(s_textInputBuf);
+        }
+        if (KPressed(SDL_SCANCODE_RETURN) || KPressed(SDL_SCANCODE_KP_ENTER)) {
+            s_keyboardActive = false;
+            SDL_StopTextInput();
+            if (s_keyboardCallback) {
+                s_keyboardCallback(s_keyboardCallbackParam, true);
+                s_keyboardCallback = nullptr;
+                s_keyboardCallbackParam = nullptr;
+            }
+        } else if (KPressed(SDL_SCANCODE_ESCAPE)) {
+            s_keyboardActive = false;
+            s_textInputBuf.clear();
+            SDL_StopTextInput();
+            if (s_keyboardCallback) {
+                s_keyboardCallback(s_keyboardCallbackParam, false);
+                s_keyboardCallback = nullptr;
+                s_keyboardCallbackParam = nullptr;
             }
         }
     }
@@ -585,104 +672,25 @@ void C_4JInput::SetDebugSequence(const char*, int (*)(void*), void*) {}
 float C_4JInput::GetIdleSeconds(int) { return 0.f; }
 bool C_4JInput::IsPadConnected(int iPad) { return iPad == 0; }
 
-// Silly check, we check if we have a keyboard.
 EKeyboardResult C_4JInput::RequestKeyboard(const wchar_t*, const wchar_t*, int,
                                            unsigned int,
                                            int (*callback)(void*, const bool),
                                            void* scene,
                                            C_4JInput::EKeyboardMode) {
-    callback(scene, true);
-    return EKeyboard_ResultAccept;
+    s_keyboardActive = true;
+    s_textInputBuf.clear();
+    s_keyboardCallback = callback;
+    s_keyboardCallbackParam = scene;
+    SDL_StartTextInput();
+    return EKeyboard_Pending;
 }
 bool C_4JInput::GetMenuDisplayed(int iPad) {
     if (iPad >= 0 && iPad < 4) return s_menuDisplayed[iPad];
     return false;
 }
-// Erase one UTF-8 codepoint from the end of a string.
-static void utf8_pop_back(std::string& str) {
-    if (str.empty()) return;
-    size_t i = str.size() - 1;
-    // Walk back past continuation bytes (10xxxxxx).
-    while (i > 0 && (str[i] & 0xC0) == 0x80) --i;
-    str.erase(i);
-}
-
-// Decode one UTF-8 codepoint starting at src[i], advance i past it.
-// Returns the Unicode codepoint, or 0xFFFD on invalid input.
-static uint32_t utf8_decode(const std::string& src, size_t& i) {
-    auto u = [&](size_t pos) -> uint8_t { return (uint8_t)src[pos]; };
-    size_t remaining = src.size() - i;
-    uint32_t cp = 0xFFFD;
-
-    if ((u(i) & 0x80) == 0) {
-        cp = u(i);
-        i += 1;
-    } else if ((u(i) & 0xE0) == 0xC0 && remaining >= 2) {
-        cp = ((u(i) & 0x1F) << 6) | (u(i + 1) & 0x3F);
-        i += 2;
-    } else if ((u(i) & 0xF0) == 0xE0 && remaining >= 3) {
-        cp = ((u(i) & 0x0F) << 12) | ((u(i + 1) & 0x3F) << 6) |
-             (u(i + 2) & 0x3F);
-        i += 3;
-    } else if ((u(i) & 0xF8) == 0xF0 && remaining >= 4) {
-        cp = ((u(i) & 0x07) << 18) | ((u(i + 1) & 0x3F) << 12) |
-             ((u(i + 2) & 0x3F) << 6) | (u(i + 3) & 0x3F);
-        i += 4;
-    } else {
-        i += 1; // skip invalid byte
-    }
-    return cp;
-}
-
-// Convert a UTF-8 string to a uint16_t UTF-16 buffer.
-// Returns the number of uint16_t units written (excluding null terminator).
-static int utf8_to_utf16(const std::string& src, uint16_t* dst, int maxUnits) {
-    int out = 0;
-    size_t i = 0;
-    while (i < src.size() && out < maxUnits) {
-        uint32_t cp = utf8_decode(src, i);
-        if (cp <= 0xFFFF) {
-            dst[out++] = (uint16_t)cp;
-        } else if (cp <= 0x10FFFF && out + 1 < maxUnits) {
-            // Surrogate pair for supplementary plane characters.
-            cp -= 0x10000;
-            dst[out++] = (uint16_t)(0xD800 | (cp >> 10));
-            dst[out++] = (uint16_t)(0xDC00 | (cp & 0x3FF));
-        } else {
-            break; // no room for surrogate pair
-        }
-    }
-    dst[out] = 0;
-    return out;
-}
-
 void C_4JInput::GetText(uint16_t* s) {
     if (!s) return;
-
-    SDL_StartTextInput();
-    std::string output;
-    bool typing = true;
-
-    while (typing) {
-        SDL_Event e;
-        while (SDL_WaitEvent(&e)) {
-            if (e.type == SDL_TEXTINPUT) {
-                output += e.text.text;
-            } else if (e.type == SDL_KEYDOWN) {
-                if (e.key.keysym.sym == SDLK_BACKSPACE) {
-                    utf8_pop_back(output);
-                } else if (e.key.keysym.sym == SDLK_RETURN ||
-                           e.key.keysym.sym == SDLK_KP_ENTER ||
-                           e.key.keysym.sym == SDLK_ESCAPE) {
-                    typing = false;
-                    break;
-                }
-            }
-        }
-    }
-    SDL_StopTextInput();
-
-    utf8_to_utf16(output, s, TEXT_INPUT_MAX_CHARS);
+    utf8_to_utf16(s_textInputBuf, s, TEXT_INPUT_MAX_CHARS);
 }
 bool C_4JInput::VerifyStrings(wchar_t**, int,
                               int (*)(void*, STRING_VERIFY_RESPONSE*), void*) {
